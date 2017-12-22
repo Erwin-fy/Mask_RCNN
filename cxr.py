@@ -10,12 +10,8 @@ Written by Waleed Abdulla
 """
 
 import os
-import math
-import random
 import numpy as np
-import cv2
 
-import scipy.misc
 import skimage.color
 import skimage.io
 
@@ -33,8 +29,8 @@ class CxrConfig(Config):
 
     # Train on 1 GPU and 8 images per GPU. We can put multiple images on each
     # GPU because the images are small. Batch size is 8 (GPUs * images/GPU).
-    GPU_COUNT = 1
-    IMAGES_PER_GPU = 8
+    GPU_COUNT = 2
+    IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
     NUM_CLASSES = 1 + 1  # background + lung
@@ -74,8 +70,8 @@ class CxrDataset(utils.Dataset):
 
         # Add images
         # read image id from txt
-        image_dir = '/media/Disk/work/171128/cxr/images'
-        mask_dir = '/media/Disk/work/171128/cxr/masks'
+        image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/images'
+        mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/masks'
 
         with open(txt, 'r') as f:
             lines = f.readlines()
