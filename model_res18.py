@@ -1835,6 +1835,10 @@ class MaskRCNN():
                     shape=[config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], None],
                     name="input_gt_masks", dtype=bool)
 
+        # Input Renet
+        # input_renet = renet_block(input_image, patch_size=(2, 2), hidden_units=32, stage='input_renet')
+        # input_renet = KL.UpSampling2D(size=(2, 2))(input_renet)
+
         # Build the shared convolutional layers.
         # Bottom-up Layers
         # Returns a list of the last layers of each stage, 5 in total.
@@ -2014,6 +2018,10 @@ class MaskRCNN():
             return None, None
         # Pick last directory
         dir_name = os.path.join(self.model_dir, dir_names[-1])
+
+        dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180114T2310'
+        print (dir_name)
+
         # Find the last checkpoint
         checkpoints = next(os.walk(dir_name))[2]
         checkpoints = filter(lambda f: f.startswith("mask_rcnn"), checkpoints)
@@ -2175,6 +2183,9 @@ class MaskRCNN():
                 now = datetime.datetime(int(m.group(1)), int(m.group(2)), int(m.group(3)),
                                         int(m.group(4)), int(m.group(5)))
                 self.epoch = int(m.group(6)) + 1
+
+        self.epoch = self.epoch - 1
+        print ('init_epoche', self.epoch)
 
         # Directory for training logs
         self.log_dir = os.path.join(self.model_dir, "{}{:%Y%m%dT%H%M}".format(

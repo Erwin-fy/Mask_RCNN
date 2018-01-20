@@ -4,7 +4,7 @@ import model_res18 as modellib
 
 from cxr import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -34,7 +34,7 @@ model = modellib.MaskRCNN(mode="training", config=config,
                           model_dir=MODEL_DIR)
 
 # Which weights to start with?
-init_with = None  # imagenet, coco, or last
+init_with = "last"  # imagenet, coco, or last
 
 if init_with == "imagenet":
     model.load_weights(model.get_imagenet_weights(), by_name=True)
@@ -70,10 +70,10 @@ elif init_with == "Res18":
 # train by name pattern.
 model.train(dataset_train, dataset_val,
             learning_rate=config.LEARNING_RATE,
-            epochs=80,
+            epochs=100,
             layers="all")
 
-model_path = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet.h5")
+model_path = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet_C2toC5.h5")
 model.keras_model.save_weights(model_path)
 
 
