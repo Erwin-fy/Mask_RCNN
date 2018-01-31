@@ -1210,7 +1210,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
         defined in MINI_MASK_SHAPE.
     """
     # Load image and mask
-    image = dataset.load_image(image_id)
+    image, rowWave, colWave = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     image, window, scale, padding = utils.resize_image(
@@ -1245,7 +1245,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, class_ids, bbox, mask
+    return image, image_meta, rowWave, colWave, class_ids, bbox, mask
 
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
@@ -1650,7 +1650,7 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Get GT bounding boxes and masks for image.
             image_id = image_ids[image_index]
-            image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+            image, image_meta, rowWave, colWave, gt_class_ids, gt_boxes, gt_masks = \
                 load_image_gt(dataset, config, image_id, augment=augment,
                               use_mini_mask=config.USE_MINI_MASK)
 
@@ -1687,6 +1687,7 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
                     (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
+
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
                                                config.MAX_GT_INSTANCES))
@@ -1733,8 +1734,9 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Batch full?
             if b >= batch_size:
-                inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-                          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
+                inputs = [batch_images, batch_image_meta,
+                          batch_rpn_match, batch_rpn_bbox,batch_gt_class_ids,
+                          batch_gt_boxes, batch_gt_masks]
                 outputs = []
 
                 if random_rois:
@@ -1836,7 +1838,7 @@ class MaskRCNN():
                     name="input_gt_masks", dtype=bool)
 
         # Input Renet
-        # input_renet = renet_block(input_image, patch_size=(2, 2), hidden_units=32, stage='input_renet')
+        # input_renet = renet_block(input_image, patch_size=(2, 2), hidden_units=16, stage='input_renet')
         # input_renet = KL.UpSampling2D(size=(2, 2))(input_renet)
 
         # Build the shared convolutional layers.
@@ -2019,7 +2021,7 @@ class MaskRCNN():
         # Pick last directory
         dir_name = os.path.join(self.model_dir, dir_names[-1])
 
-        dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180114T2310'
+        # dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180121T1227'
         print (dir_name)
 
         # Find the last checkpoint

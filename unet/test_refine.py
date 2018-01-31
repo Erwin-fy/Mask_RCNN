@@ -25,7 +25,7 @@ from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -35,8 +35,8 @@ MODEL_DIR = os.path.join(ROOT_DIR, "weights")
 
 # UNET_MODEL_PATH = os.path.join(MODEL_DIR, "Hospital_fm_512ch_input512.hdf5")
 
-RESULTS_PATH = os.path.join(ROOT_DIR, "results", "crop_preserve", "512_320", "512_320_crop")
-BOX_PATH = os.path.join(ROOT_DIR, "results", "second", "crop_preserve", "512_320", "box")
+RESULTS_PATH = os.path.join(ROOT_DIR, "results", "crop_preserve", "renet_C5_wave", "512_320", "512_320_crop")
+BOX_PATH = os.path.join(ROOT_DIR, "refine", "HED/JSRT/renet_C5_wave/512_320", "box")
 
 isExists=os.path.exists(RESULTS_PATH)
 if not isExists:
@@ -65,7 +65,7 @@ class InferenceConfig(config.__class__):
     def get_weights_name(self):
         weights_name = os.path.join(MODEL_DIR, 'crop_preserve',
                                     str(self.initial_channel * 32) + '_ch_'
-                                    + str(self.IMAGE_MAX_DIM) + '_size_second') + '.hdf5'
+                                    + str(self.IMAGE_MAX_DIM) + '_size') + '.hdf5'
         return weights_name
 
 config = InferenceConfig()
@@ -73,10 +73,11 @@ config = InferenceConfig()
 
 # val dataset
 dataset = CxrDataset()
-dataset.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/val_id.txt')
+dataset.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/val_id.txt')
 dataset.prepare()
 
-unet = model.UNet(config)
+unet = model.UNet(mode="testing", config=config,
+                   model_dir=MODEL_DIR)
 unet.load_weights(filepath=config.get_weights_name(), by_name=False)
 # iu = unet.evaluation(dataset, RESULTS_PATH)
 # print(iu.mean())

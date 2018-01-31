@@ -5,7 +5,6 @@ import re
 import logging
 import numpy as np
 import cv2
-import scipy.misc
 import tensorflow as tf
 import keras
 import keras.backend as K
@@ -73,24 +72,19 @@ def load_image_gt(dataset, config, image_id, augment=False):
     # Load image and mask
     image = dataset.load_image(image_id)
     mask = dataset.load_mask(image_id)
-    result = dataset.load_mrcnn_mask(image_id)
 
-    # image, window, scale, padding = utils.resize_image(
-    #     image,
-    #     min_dim=config.IMAGE_MIN_DIM,
-    #     max_dim=config.IMAGE_MAX_DIM,
-    #     padding=config.IMAGE_PADDING)
-    # mask = utils.resize_mask(mask, scale, padding)
-    # result = utils.resize_mask(result, scale, padding)
+    image, window, scale, padding = utils.resize_image(
+        image,
+        min_dim=config.IMAGE_MIN_DIM,
+        max_dim=config.IMAGE_MAX_DIM,
+        padding=config.IMAGE_PADDING)
+    mask = utils.resize_mask(mask, scale, padding)
 
     # Random horizontal flips.
     if augment:
         if random.randint(0, 1):
             image = np.fliplr(image)
             mask = np.fliplr(mask)
-            result = np.fliplr(result)
-
-    image = np.concatenate((image, result), axis=2)
 
     return image, mask
 
@@ -165,15 +159,82 @@ def data_generator(dataset, config, shuffle=True, augment=True, batch_size=1):
                 raise
 
 
-class UNet():
+def identity_block(input_tensor, kernel_size, filters, stage, block,
+                   dilation_rate=(1, 1), use_bias=True):
+    """The identity_block is the block that has no conv layer at shortcut
+    # Arguments
+        input_tensor: input tensor
+        kernel_size: defualt 3, the kernel size of middle conv layer at main path
+        filters: list of integers, the nb_filters of 3 conv layer at main path
+        stage: integer, current stage label, used for generating layer names
+        block: 'a','b'..., current block label, used for generating layer names
+    """
+    nb_filter1, nb_filter2 = filters
+    conv_name_base = 'res' + str(stage) + block + '_branch'
+    bn_name_base = 'bn' + str(stage) + block + '_branch'
+
+    x = KL.Conv2D(nb_filter1, (1, 1), dilation_rate=dilation_rate,
+                  name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
+    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2a')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
+                  dilation_rate=dilation_rate, name=conv_name_base + '2b',
+                  use_bias=use_bias)(x)
+    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2b')(x)
+
+    x = KL.Add()([x, input_tensor])
+    x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
+    return x
+
+
+def conv_block(input_tensor, kernel_size, filters, stage, block,
+               strides=(2, 2), use_bias=True):
+    """conv_block is the block that has a conv layer at shortcut
+    # Arguments
+        input_tensor: input tensor
+        kernel_size: defualt 3, the kernel size of middle conv layer at main path
+        filters: list of integers, the nb_filters of 3 conv layer at main path
+        stage: integer, current stage label, used for generating layer names
+        block: 'a','b'..., current block label, used for generating layer names
+    Note that from stage 3, the first conv layer at main path is with subsample=(2,2)
+    And the shortcut should have subsample=(2,2) as well
+    """
+    nb_filter1, nb_filter2 = filters
+    conv_name_base = 'res' + str(stage) + block + '_branch'
+    bn_name_base = 'bn' + str(stage) + block + '_branch'
+
+    x = KL.Conv2D(nb_filter1, (1, 1), strides=strides,
+                  name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
+    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2a')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
+                  name=conv_name_base + '2b', use_bias=use_bias)(x)
+    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2b')(x)
+
+    shortcut = KL.Conv2D(nb_filter2, (1, 1), strides=strides,
+                         name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
+    shortcut = KL.BatchNormalization(axis=3, name=bn_name_base + '1')(shortcut)
+
+    x = KL.Add()([x, shortcut])
+    x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
+    return x
+
+
+class Net():
     def __init__(self, mode, config, model_dir):
         self.mode = mode
         self.config = config
         self.WEIGHT_DECAY = config.WEIGHT_DECAY
+        if config.concat:
+            self.input_shape = (self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 4)
+        else:
+            self.input_shape = (self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 3)
+
         self.model_dir = model_dir
         self.set_log_dir()
 
-        self.input_shape = (config.IMAGE_MAX_DIM, config.IMAGE_MIN_DIM, 4)
         self.model = self.build()
 
     def log_layers(self):
@@ -181,172 +242,33 @@ class UNet():
         for layer in layers:
             print(layer.name)
 
-    def build(self, mode='training'):
+    def build(self):
         input_image = KL.Input(shape=self.input_shape, name='input_image')
 
-        conv1 = KL.Conv2D(8, (3, 3), padding='same', name='input_concat4',)(input_image)
-        conv1 = KL.BatchNormalization(axis=3)(conv1)
-        conv1 = KL.Activation('relu')(conv1)
-        conv1 = KL.Conv2D(8, (3, 3), padding='same')(conv1)
-        conv1 = KL.BatchNormalization(axis=3)(conv1)
-        conv1 = KL.Activation('relu')(conv1)
-        pool1 = KL.MaxPool2D((2,2), strides=(2,2))(conv1)
-        print(conv1.get_shape(), K.int_shape(conv1)[1:])
+        x = KL.ZeroPadding2D((2, 2))(input_image)
+        x = KL.Conv2D(32, (5, 5), name='conv1', use_bias=True)(x)
+        x = KL.BatchNormalization(axis=3, name='bn_conv1')(x)
+        x = KL.Activation('relu')(x)
+        x = KL.Conv2D(32, (3, 3), padding='same', name='conv2', use_bias=True)(x)
+        x = KL.BatchNormalization(axis=3, name='bn_conv2')(x)
+        x = KL.Activation('relu')(x)
 
-        conv2 = KL.Conv2D(16, (3, 3), padding='same')(pool1)
-        conv2 = KL.BatchNormalization(axis=3)(conv2)
-        conv2 = KL.Activation('relu')(conv2)
-        conv2= KL.Conv2D(16, (3, 3), padding='same')(conv2)
-        conv2 = KL.BatchNormalization(axis=3)(conv2)
-        conv2 = KL.Activation('relu')(conv2)
-        pool2 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv2)
+        x = conv_block(x, 3, [32, 32], stage=3, block='a')
+        x = identity_block(x, 3, [32, 32], stage=3, block='b')
+        x = identity_block(x, 3, [32, 32], stage=3, block='c')
 
-        conv3 = KL.Conv2D(32, (3, 3), padding='same')(pool2)
-        conv3 = KL.BatchNormalization(axis=3)(conv3)
-        conv3 = KL.Activation('relu')(conv3)
-        conv3 = KL.Conv2D(32, (3, 3), padding='same')(conv3)
-        conv3 = KL.BatchNormalization(axis=3)(conv3)
-        conv3 = KL.Activation('relu')(conv3)
-        pool3 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv3)
+        x = conv_block(x, 3, [32, 32], stage=4, block='a')
+        x = identity_block(x, 3, [32, 32], stage=4, block='b', dilation_rate=(3, 3))
+        x = identity_block(x, 3, [32, 32], stage=4, block='c', dilation_rate=(3, 3))
 
-        conv4 = KL.Conv2D(64, (3, 3), padding='same')(pool3)
-        conv4 = KL.BatchNormalization(axis=3)(conv4)
-        conv4 = KL.Activation('relu')(conv4)
-        conv4 = KL.Conv2D(64, (3, 3), padding='same')(conv4)
-        conv4 = KL.BatchNormalization(axis=3)(conv4)
-        conv4 = KL.Activation('relu')(conv4)
-        pool4 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv4)
+        classify = KL.Conv2D(2, (1, 1), name='classifier')(x)
+        classify = KL.Lambda(lambda t: tf.image.resize_images(
+            t, [self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM]))(classify)
 
-        conv5 = KL.Conv2D(128, (3, 3), padding='same')(pool4)
-        conv5 = KL.BatchNormalization(axis=3)(conv5)
-        conv5 = KL.Activation('relu')(conv5)
-        conv5 = KL.Conv2D(128, (3, 3), padding='same')(conv5)
-        conv5 = KL.BatchNormalization(axis=3)(conv5)
-        conv5 = KL.Activation('relu')(conv5)
-        pool5= KL.MaxPool2D((2, 2), strides=(2, 2))(conv5)
-
-        conv6 = KL.Conv2D(256, (3, 3), padding='same')(pool5)
-        conv6 = KL.BatchNormalization(axis=3)(conv6)
-        conv6 = KL.Activation('relu')(conv6)
-        conv6 = KL.Conv2D(256, (3, 3), padding='same')(conv6)
-        conv6 = KL.BatchNormalization(axis=3)(conv6)
-        conv6 = KL.Activation('relu')(conv6)
-        # pool6 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv6)
-        #
-        # conv7 = KL.Conv2D(512, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(pool6)
-        # conv7 = KL.BatchNormalization()(conv7)
-        # conv7 = KL.Activation('relu')(conv7)
-        # conv7 = KL.Conv2D(512, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv7)
-        # conv7 = KL.BatchNormalization()(conv7)
-        # conv7 = KL.Activation('relu')(conv7)
-        # pool7 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv7)
-        #
-        # conv8 = KL.Conv2D(1024, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(pool7)
-        # conv8 = KL.BatchNormalization()(conv8)
-        # conv8 = KL.Activation('relu')(conv8)
-        # conv8 = KL.Conv2D(1024, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv8)
-        # conv8 = KL.BatchNormalization()(conv8)
-        # conv8 = KL.Activation('relu')(conv8)
-        #
-        # deconv1 = KL.Conv2DTranspose(512, (2, 2), strides=(2,2), padding='valid',
-        #                              kernel_initializer='glorot_normal',
-        #                              kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv8)
-        # deconv1 = KL.Activation('relu')(deconv1)
-        # deconv1 = KL.Concatenate(axis=3)([conv7, deconv1])
-        # deconv1 = KL.Conv2D(512, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv1)
-        # deconv1 = KL.BatchNormalization()(deconv1)
-        # deconv1 = KL.Activation('relu')(deconv1)
-        # deconv1 = KL.Conv2D(512, (3, 3), padding='same',
-        #                   kernel_initializer='glorot_normal',
-        #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv1)
-        # deconv1 = KL.BatchNormalization()(deconv1)
-        # deconv1 = KL.Activation('relu')(deconv1)
-
-        # deconv2 = KL.Conv2DTranspose(256, (2, 2), strides=(2,2), padding='valid',
-        #                              kernel_initializer='glorot_normal',
-        #                              kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv7)
-        # deconv2 = KL.Activation('relu')(deconv2)
-        # deconv2 = KL.Concatenate(axis=3)([conv6, deconv2])
-        # deconv2 = KL.Conv2D(256, (3, 3), padding='same',
-        #                    kernel_initializer='glorot_normal',
-        #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv2)
-        # deconv2 = KL.BatchNormalization()(deconv2)
-        # deconv2 = KL.Activation('relu')(deconv2)
-        # deconv2 = KL.Conv2D(256, (3, 3), padding='same',
-        #                    kernel_initializer='glorot_normal',
-        #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv2)
-        # deconv2 = KL.BatchNormalization()(deconv2)
-        # deconv2 = KL.Activation('relu')(deconv2)
-
-        deconv3 = KL.Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='valid')(conv6)
-        deconv3 = KL.Activation('relu')(deconv3)
-        deconv3 = KL.Concatenate(axis=3)([conv5, deconv3])
-        deconv3 = KL.Conv2D(128, (3, 3), padding='same')(deconv3)
-        deconv3 = KL.BatchNormalization(axis=3)(deconv3)
-        deconv3 = KL.Activation('relu')(deconv3)
-        deconv3 = KL.Conv2D(128, (3, 3), padding='same',
-                           kernel_initializer='glorot_normal')(deconv3)
-        deconv3 = KL.BatchNormalization(axis=3)(deconv3)
-        deconv3 = KL.Activation('relu')(deconv3)
-
-        deconv4 = KL.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='valid')(deconv3)
-        deconv4 = KL.Activation('relu')(deconv4)
-        deconv4 = KL.Concatenate(axis=3)([conv4 , deconv4])
-        deconv4 = KL.Conv2D(64, (3, 3), padding='same')(deconv4)
-        deconv4 = KL.BatchNormalization(axis=3)(deconv4)
-        deconv4 = KL.Activation('relu')(deconv4)
-        deconv4 = KL.Conv2D(64, (3, 3), padding='same')(deconv4)
-        deconv4 = KL.BatchNormalization(axis=3)(deconv4)
-        deconv4 = KL.Activation('relu')(deconv4)
-
-        deconv5 = KL.Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='valid')(deconv4)
-        deconv5 = KL.Activation('relu')(deconv5)
-        deconv5 = KL.Concatenate(axis=3)([conv3, deconv5])
-        deconv5 = KL.Conv2D(32, (3, 3), padding='same')(deconv5)
-        deconv5 = KL.BatchNormalization(axis=3)(deconv5)
-        deconv5 = KL.Activation('relu')(deconv5)
-        deconv5 = KL.Conv2D(32, (3, 3), padding='same')(deconv5)
-        deconv5 = KL.BatchNormalization(axis=3)(deconv5)
-        deconv5 = KL.Activation('relu')(deconv5)
-
-        deconv6 = KL.Conv2DTranspose(16, (2, 2), strides=(2, 2), padding='valid')(deconv5)
-        deconv6 = KL.Activation('relu')(deconv6)
-        deconv6 = KL.Concatenate(axis=3)([conv2, deconv6])
-        deconv6 = KL.Conv2D(16, (3, 3), padding='same')(deconv6)
-        deconv6 = KL.BatchNormalization(axis=3)(deconv6)
-        deconv6 = KL.Activation('relu')(deconv6)
-        deconv6 = KL.Conv2D(16, (3, 3), padding='same')(deconv6)
-        deconv6 = KL.BatchNormalization(axis=3)(deconv6)
-        deconv6= KL.Activation('relu')(deconv6)
-
-        deconv7 = KL.Conv2DTranspose(8, (2, 2), strides=(2, 2), padding='valid')(deconv6)
-        deconv7 = KL.Activation('relu')(deconv7)
-        deconv7 = KL.Concatenate(axis=3)([conv1, deconv7])
-        deconv7 = KL.Conv2D(8, (3, 3), padding='same')(deconv7)
-        deconv7 = KL.BatchNormalization(axis=3)(deconv7)
-        deconv7 = KL.Activation('relu')(deconv7)
-        deconv7 = KL.Conv2D(8, (3, 3), padding='same')(deconv7)
-        deconv7 = KL.BatchNormalization(axis=3)(deconv7)
-        deconv7 = KL.Activation('relu')(deconv7)
-        print(deconv7.get_shape())
-
-        classify = KL.Conv2D(self.config.NUM_CLASSES, (1, 1),
-                             activation='sigmoid')(deconv7)
-
-        if self.mode == 'training':
-            input_mask = KL.Input(shape=[self.config.IMAGE_MAX_DIM, self.config.IMAGE_MIN_DIM, 1],
+        if self.mode == 'train':
+            input_mask = KL.Input(shape=[self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 1],
                                   name='input_mask')
-            loss = KL.Lambda(lambda x: losses.binary_crossentropy(*x), name="loss")(
+            loss = KL.Lambda(lambda x: losses.sparse_categorical_crossentropy(*x), name="loss")(
                 [input_mask, classify])
 
             inputs = [input_image, input_mask]
@@ -354,10 +276,6 @@ class UNet():
         else:
             inputs = input_image
             outputs = classify
-
-        # classify = KL.Conv2D(self.config.NUM_CLASSES, (1, 1),
-        #                      kernel_initializer='glorot_normal',
-        #                      kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv7)
 
         model = KM.Model(inputs=inputs, outputs=outputs)
 
@@ -384,7 +302,7 @@ class UNet():
         self.log_dir = os.path.join(self.model_dir, "stage1")
 
         # Path to save after each epoch. Include placeholders that get filled by Keras.
-        self.checkpoint_path = os.path.join(self.log_dir, "JSRT_{}_*epoch*.h5".format(
+        self.checkpoint_path = os.path.join(self.log_dir, "korea_{}_*epoch*.h5".format(
             self.config.NAME.lower()))
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
@@ -395,6 +313,7 @@ class UNet():
         some layers from loading.
         exlude: list of layer names to excluce
         """
+        print (filepath)
         import h5py
         from keras.engine import topology
 
@@ -509,7 +428,6 @@ class UNet():
                                        batch_size=self.config.BATCH_SIZE,
                                        augment=False)
 
-        # Callbacks
         callbacks = [
             keras.callbacks.TensorBoard(log_dir=self.log_dir,
                                         histogram_freq=0, write_graph=True, write_images=False),
@@ -523,6 +441,7 @@ class UNet():
         # Train
         self.model.fit_generator(
             generator=train_generator,
+            initial_epoch=self.epoch,
             epochs=epochs,
             steps_per_epoch=self.config.STEPS_PER_EPOCH,
             callbacks=callbacks,
@@ -531,6 +450,8 @@ class UNet():
             workers=max(self.config.BATCH_SIZE // 2, 2),
             use_multiprocessing=True,
         )
+
+        self.epoch = max(self.epoch, epochs)
 
     def dice(self, y_true, y_pred):
         smooth = 1.
@@ -565,7 +486,7 @@ class UNet():
 
     def evaluation(self, dataset, filepath):
         image_ids = dataset.image_ids
-        threshold = 0.5
+        # threshold = 0.5
         iu = np.zeros(len(image_ids))
 
         for index, image_id in enumerate(image_ids):
@@ -574,18 +495,27 @@ class UNet():
             image = mold_image(image.astype(np.float32), self.config)
 
             pred = self.model.predict(np.array([image]), verbose=0)
-            # pred = np.reshape(pred, (pred.shape[1], pred.shape[2]))
-            pred[pred < threshold] = 0
-            pred[pred > threshold] = 1
+
+            print (pred.shape)
+            pred = np.argmax(pred, axis=3)
+            print (pred.shape)
+            pred = np.squeeze(pred, axis=0)
+            print (pred.shape)
+            pred = np.expand_dims(pred, axis=2)
+
+            print (pred.shape)
+
+            # pred[pred < threshold] = 0
+            # pred[pred > threshold] = 1
             _, _, iou, _, dice = self.compute_IOU(pred.astype(np.int64), gt_mask.astype(np.int64))
             iu[index] = iou[1]
 
             info = dataset.image_info[image_id]
             filename = info['filename']
 
-            # filename = filename + '_' + str(iu[index])[0:5]
+            filename = filename + '_' + str(iu[index])[0:5]
             # utils.save_results(os.path.join(filepath, filename + '.png'),
-            #                    (np.reshape(pred, (pred.shape[1], pred.shape[2])) * 255).astype(np.uint8))
+            #                    (pred.squeeze(axis=2) * 255).astype(np.uint8))
 
             # utils.save_results(os.path.join(filepath, filename + '.png'),
             #                    (np.reshape(pred, (pred.shape[1], pred.shape[2]))).astype(np.uint8))
@@ -594,80 +524,4 @@ class UNet():
 
         return iu
 
-    def save_box(self, dataset, box_dir):
-        isExists = os.path.exists(box_dir)
-        if not isExists:
-            os.makedirs(box_dir)
 
-        hed_results = '/media/Disk/wangfuyu/Mask_RCNN/refine/HED/JSRT/renet_C5_wave/512_320/Segresult/'
-        val_box_info = open('/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/box_info.txt', 'r')
-        lines = val_box_info.readlines()
-        box_dict = {}
-
-        for line in lines:
-            tmp = re.split(' ', line)
-            filename = tmp[0]
-            y1 = int(tmp[1])
-            x1 = int(tmp[2])
-            y2 = int(tmp[3])
-            x2 = int(tmp[4])
-
-            box_dict[filename] = [y1, x1, y2, x2]
-
-        image_ids = dataset.image_ids
-        threshold = 0.5
-
-        for index, image_id in enumerate(image_ids):
-            # Load image
-            image, gt_mask = load_image_gt(dataset, self.config, image_id)
-            image = mold_image(image.astype(np.float32), self.config)
-
-            info = dataset.image_info[image_id]
-            filename = info['filename']
-            y1, x1, y2, x2 = box_dict[filename]
-            # print(y1, y2, y1 + y2)
-
-            pred = cv2.imread(hed_results + filename + '.jpg')
-            pred = cv2.cvtColor(pred, cv2.COLOR_BGR2GRAY)
-            pred = pred / 255.0
-
-            # pred = self.model.predict(np.array([image]), verbose=0)
-            # pred = np.reshape(pred, (pred.shape[1], pred.shape[2]))
-            # # print (pred.shape)
-            pred = scipy.misc.imresize(pred, (y2 - y1, x2 - x1), interp='bilinear').astype(np.float32) / 255.0
-            # pred[pred < threshold] = 0
-            # pred[pred > threshold] = 1
-            # # pred.squeeze(axis=2)
-
-            result = np.zeros((1024, 1024))
-            result[y1: y2, x1: x2] = pred
-
-            cv2.imwrite(os.path.join(box_dir, filename + '.png'),
-                        (result*255).astype(np.uint8), [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
-
-    def save_results(self, dataset, save_dir):
-        image_ids = dataset.image_ids
-        threshold = 0.5
-
-        for index, image_id in enumerate(image_ids):
-            # Load image
-            image, gt_mask = load_image_gt(dataset, self.config, image_id)
-            image = mold_image(image.astype(np.float32), self.config)
-
-            pred = self.model.predict(np.array([image]), verbose=0)
-            # print (pred.shape)
-            pred = np.reshape(pred, (pred.shape[1], pred.shape[2]))
-            pred[pred < threshold] = 0
-            pred[pred > threshold] = 1
-
-            info = dataset.image_info[image_id]
-            filename = info['filename']
-
-            # filename = filename + '_' + str(iu[index])[0:5]
-            # utils.save_results(os.path.join(filepath, filename + '.png'),
-            #                    (np.reshape(pred, (pred.shape[1], pred.shape[2])) * 255).astype(np.uint8))
-
-            cv2.imwrite(os.path.join(save_dir, filename + '.png'),
-                        pred.astype(np.uint8), [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
-            # cv2.imwrite(os.path.join(save_dir, filename + '.png'),
-            #             (pred * 255).astype(np.uint8), [int(cv2.IMWRITE_PNG_COMPRESSION), 9])

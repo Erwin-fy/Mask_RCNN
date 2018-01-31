@@ -32,9 +32,9 @@ class CxrConfig(Config):
     IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 1  # background + lung
+    NUM_CLASSES = 1  # background + lung
 
-    IMAGES_PER_GPU = 1
+    IMAGES_PER_GPU = 4
 
 
 class CxrDataset(utils.Dataset):
@@ -47,10 +47,10 @@ class CxrDataset(utils.Dataset):
 
         # self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/images'
         # self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/binary_masks'
-        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/512_320/images'
-        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/512_320/masks'
-        # self.mrcnn_mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/512_320/mrcnn_masks'
-        self.mrcnn_mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/unet/results/crop_preserve/512_320/512_320_crop'
+        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/images'
+        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/masks'
+        self.mrcnn_mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/mrcnn_masks'
+        # self.mrcnn_mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/unet/results/crop_preserve/512_320/512_320_crop'
 
     def load_cxr(self, txt):
         """Load Dataset

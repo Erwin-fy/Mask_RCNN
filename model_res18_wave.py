@@ -25,7 +25,6 @@ import keras
 import keras.backend as K
 import keras.layers as KL
 import keras.initializers as KI
-import keras.regularizers as KR
 import keras.engine as KE
 import keras.models as KM
 
@@ -68,6 +67,77 @@ class BatchNorm(KL.BatchNormalization):
 
 
 ############################################################
+#  Renet block
+############################################################
+
+def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden_units, stage):
+    """
+    input_tensor: bacth * height * width * channels
+    patch_size: tuple
+    hidden_units: dimensionality of the output space in LSTM
+    """
+
+    shape = K.int_shape(input_tensor)
+    batch, height, width, channels = shape[0], shape[1], shape[2], shape[3]
+    print (batch, height, width, channels)
+    patch_height, patch_width = patch_size
+    psize = patch_height * patch_width * channels
+    num_patchesH = tf.cast(height / patch_height, tf.int32)
+    num_patchesW = tf.cast(width / patch_width, tf.int32)
+
+    input_tensor = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
+                                 num_patchesW, patch_width, channels)))(input_tensor)
+
+    # batch * num_patchesH * num_patchesW * patch_height * patch_width * channels
+    input_tensor = KL.Lambda(
+        lambda t: tf.transpose(t, (0, 1, 3, 2, 4, 5)))(input_tensor)
+    # batch * num_patchesH || num_patchesW || patch_height * patch_width * channels
+    input_tensor = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(input_tensor)
+
+    input_row_wave = KL.Lambda(
+        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    input_row_wave = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+
+    input_tensor = KL.Concatenate(axis=2)([input_tensor, input_row_wave])
+    print (K.int_shape(input_tensor))
+
+    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+                         name="H_LSTM_" + str(stage))(input_tensor)
+    # print (K.int_shape(x))
+    x = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x)
+
+    psize = 2 * hidden_units
+    x = KL.Lambda(
+        lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+
+    x = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x)
+
+    input_col_wave = KL.Lambda(
+        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    input_col_wave = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+
+    x = KL.Concatenate(axis=2)([x, input_col_wave])
+    print (K.int_shape(x))
+
+    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+                         name="V_LSTM_" + str(stage))(x)
+    # print (K.int_shape(x))
+    x = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, psize)))(x)
+    # print (K.int_shape(x))
+    x = KL.Lambda(
+        lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+
+    return x
+
+
+############################################################
 #  Resnet Graph
 ############################################################
 
@@ -84,7 +154,7 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
         stage: integer, current stage label, used for generating layer names
         block: 'a','b'..., current block label, used for generating layer names
     """
-    nb_filter1, nb_filter2, nb_filter3 = filters
+    nb_filter1, nb_filter2 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -96,11 +166,6 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',
-                  use_bias=use_bias)(x)
-    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
 
     x = KL.Add()([x, input_tensor])
     x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
@@ -119,7 +184,7 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     Note that from stage 3, the first conv layer at main path is with subsample=(2,2)
     And the shortcut should have subsample=(2,2) as well
     """
-    nb_filter1, nb_filter2, nb_filter3 = filters
+    nb_filter1, nb_filter2 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -131,13 +196,8 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
-    x = KL.Activation('relu')(x)
 
-    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base +
-                  '2c', use_bias=use_bias)(x)
-    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
-
-    shortcut = KL.Conv2D(nb_filter3, (1, 1), strides=strides,
+    shortcut = KL.Conv2D(nb_filter2, (1, 1), strides=strides,
                          name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
     shortcut = BatchNorm(axis=3, name=bn_name_base + '1')(shortcut)
 
@@ -146,34 +206,47 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     return x
 
 
-def resnet_graph(input_image, architecture, stage5=False):
-    assert architecture in ["resnet50", "resnet101"]
+def resnet_graph(input_image, input_row_wave, input_col_wave, architecture, stage5=False):
+    assert architecture in ["resnet18"]
     # Stage 1
     x = KL.ZeroPadding2D((3, 3))(input_image)
     x = KL.Conv2D(64, (7, 7), strides=(2, 2), name='conv1', use_bias=True)(x)
     x = BatchNorm(axis=3, name='bn_conv1')(x)
     x = KL.Activation('relu')(x)
     C1 = x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
+    # x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
+    # C1 = x = renet_block(x, patch_size=(2, 2), hidden_units=64, stage=1)
+
     # Stage 2
-    x = conv_block(x, 3, [64, 64, 256], stage=2, block='a', strides=(1, 1))
-    x = identity_block(x, 3, [64, 64, 256], stage=2, block='b')
-    C2 = x = identity_block(x, 3, [64, 64, 256], stage=2, block='c')
+    x = conv_block(x, 3, [64, 64], stage=2, block='a', strides=(1, 1))
+    C2 = x = identity_block(x, 3, [64, 64], stage=2, block='b')
+    # x = identity_block(x, 3, [64, 64], stage=2, block='b')
+    # x = renet_block(x, input_row_wave, input_col_wave,
+    #                 patch_size=(2, 2), hidden_units=32, stage=2)
+    # C2 = x = KL.UpSampling2D(size=(2, 2))(x)
+
     # Stage 3
-    x = conv_block(x, 3, [128, 128, 512], stage=3, block='a')
-    x = identity_block(x, 3, [128, 128, 512], stage=3, block='b')
-    x = identity_block(x, 3, [128, 128, 512], stage=3, block='c')
-    C3 = x = identity_block(x, 3, [128, 128, 512], stage=3, block='d')
+    x = conv_block(x, 3, [128, 128], stage=3, block='a')
+    C3 = x = identity_block(x, 3, [128, 128], stage=3, block='b')
+    # x = identity_block(x, 3, [128, 128], stage=3, block='b')
+    # x = renet_block(x, input_row_wave, input_col_wave,
+    #                 patch_size=(2, 2), hidden_units=64, stage=3)
+    # C3 = x = KL.UpSampling2D(size=(2, 2))(x)
+
     # Stage 4
-    x = conv_block(x, 3, [256, 256, 1024], stage=4, block='a')
-    block_count = {"resnet50": 5, "resnet101": 22}[architecture]
-    for i in range(block_count):
-        x = identity_block(x, 3, [256, 256, 1024], stage=4, block=chr(98 + i))
-    C4 = x
+    x = conv_block(x, 3, [256, 256], stage=4, block='a')
+    C4 = x = identity_block(x, 3, [256, 256], stage=4, block='b')
+    # x = identity_block(x, 3, [256, 256], stage=4, block='b')
+    # C4 = x = renet_block(x, input_row_wave, input_col_wave,
+    #                      patch_size=(1, 1), hidden_units=64, stage=4)
+
     # Stage 5
     if stage5:
-        x = conv_block(x, 3, [512, 512, 2048], stage=5, block='a')
-        x = identity_block(x, 3, [512, 512, 2048], stage=5, block='b')
-        C5 = x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c')
+        x = conv_block(x, 3, [512, 512,], stage=5, block='a')
+        # C5 = x = identity_block(x, 3, [512, 512], stage=5, block='b')
+        x = identity_block(x, 3, [512, 512], stage=5, block='b')
+        C5 = x = renet_block(x, input_row_wave, input_col_wave,
+                             patch_size=(1, 1), hidden_units=64, stage=5)
     else:
         C5 = None
     return [C1, C2, C3, C4, C5]
@@ -1134,228 +1207,6 @@ def mrcnn_mask_loss_graph(target_masks, target_class_ids, pred_masks):
     return loss
 
 
-def build_unet_graph(x, config):
-    conv1 = KL.Conv2D(8, (3, 3), padding='same', name='unet_conv',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(x)
-    conv1 = KL.BatchNormalization()(conv1)
-    conv1 = KL.Activation('relu')(conv1)
-    conv1 = KL.Conv2D(8, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv1)
-    conv1 = KL.BatchNormalization()(conv1)
-    conv1 = KL.Activation('relu')(conv1)
-    pool1 = KL.MaxPool2D((2,2), strides=(2,2))(conv1)
-    print(conv1.get_shape())
-
-    conv2 = KL.Conv2D(16, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(pool1)
-    conv2 = KL.BatchNormalization()(conv2)
-    conv2 = KL.Activation('relu')(conv2)
-    conv2= KL.Conv2D(16, (3, 3), padding='same',
-                     kernel_initializer='glorot_normal',
-                     kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv2)
-    conv2 = KL.BatchNormalization()(conv2)
-    conv2 = KL.Activation('relu')(conv2)
-    pool2 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv2)
-
-    conv3 = KL.Conv2D(32, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(pool2)
-    conv3 = KL.BatchNormalization()(conv3)
-    conv3 = KL.Activation('relu')(conv3)
-    conv3 = KL.Conv2D(32, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv3)
-    conv3 = KL.BatchNormalization()(conv3)
-    conv3 = KL.Activation('relu')(conv3)
-    pool3 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv3)
-
-    conv4 = KL.Conv2D(64, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(pool3)
-    conv4 = KL.BatchNormalization()(conv4)
-    conv4 = KL.Activation('relu')(conv4)
-    conv4 = KL.Conv2D(64, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv4)
-    conv4 = KL.BatchNormalization()(conv4)
-    conv4 = KL.Activation('relu')(conv4)
-    pool4 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv4)
-
-    conv5 = KL.Conv2D(128, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(pool4)
-    conv5 = KL.BatchNormalization()(conv5)
-    conv5 = KL.Activation('relu')(conv5)
-    conv5 = KL.Conv2D(128, (3, 3), padding='same',
-                      kernel_initializer='glorot_normal',
-                      kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv5)
-    conv5 = KL.BatchNormalization()(conv5)
-    conv5 = KL.Activation('relu')(conv5)
-    # pool5= KL.MaxPool2D((2, 2), strides=(2, 2))(conv5)
-    #
-    # conv6 = KL.Conv2D(256, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(pool5)
-    # conv6 = KL.BatchNormalization()(conv6)
-    # conv6 = KL.Activation('relu')(conv6)
-    # conv6 = KL.Conv2D(256, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv6)
-    # conv6 = KL.BatchNormalization()(conv6)
-    # conv6 = KL.Activation('relu')(conv6)
-    # pool6 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv6)
-    #
-    # conv7 = KL.Conv2D(512, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(pool6)
-    # conv7 = KL.BatchNormalization()(conv7)
-    # conv7 = KL.Activation('relu')(conv7)
-    # conv7 = KL.Conv2D(512, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv7)
-    # conv7 = KL.BatchNormalization()(conv7)
-    # conv7 = KL.Activation('relu')(conv7)
-    # pool7 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv7)
-    #
-    # conv8 = KL.Conv2D(1024, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(pool7)
-    # conv8 = KL.BatchNormalization()(conv8)
-    # conv8 = KL.Activation('relu')(conv8)
-    # conv8 = KL.Conv2D(1024, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv8)
-    # conv8 = KL.BatchNormalization()(conv8)
-    # conv8 = KL.Activation('relu')(conv8)
-    #
-    # deconv1 = KL.Conv2DTranspose(512, (2, 2), strides=(2,2), padding='valid',
-    #                              kernel_initializer='glorot_normal',
-    #                              kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv8)
-    # deconv1 = KL.Activation('relu')(deconv1)
-    # deconv1 = KL.Concatenate(axis=3)([conv7, deconv1])
-    # deconv1 = KL.Conv2D(512, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv1)
-    # deconv1 = KL.BatchNormalization()(deconv1)
-    # deconv1 = KL.Activation('relu')(deconv1)
-    # deconv1 = KL.Conv2D(512, (3, 3), padding='same',
-    #                   kernel_initializer='glorot_normal',
-    #                   kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv1)
-    # deconv1 = KL.BatchNormalization()(deconv1)
-    # deconv1 = KL.Activation('relu')(deconv1)
-
-    # deconv2 = KL.Conv2DTranspose(256, (2, 2), strides=(2,2), padding='valid',
-    #                              kernel_initializer='glorot_normal',
-    #                              kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv7)
-    # deconv2 = KL.Activation('relu')(deconv2)
-    # deconv2 = KL.Concatenate(axis=3)([conv6, deconv2])
-    # deconv2 = KL.Conv2D(256, (3, 3), padding='same',
-    #                    kernel_initializer='glorot_normal',
-    #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv2)
-    # deconv2 = KL.BatchNormalization()(deconv2)
-    # deconv2 = KL.Activation('relu')(deconv2)
-    # deconv2 = KL.Conv2D(256, (3, 3), padding='same',
-    #                    kernel_initializer='glorot_normal',
-    #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv2)
-    # deconv2 = KL.BatchNormalization()(deconv2)
-    # deconv2 = KL.Activation('relu')(deconv2)
-
-    # deconv3 = KL.Conv2DTranspose(128, (2, 2), strides=(2, 2), padding='valid',
-    #                               kernel_initializer='glorot_normal',
-    #                               kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(conv6)
-    # deconv3 = KL.Activation('relu')(deconv3)
-    # deconv3 = KL.Concatenate(axis=3)([conv5, deconv3])
-    # deconv3 = KL.Conv2D(128, (3, 3), padding='same',
-    #                    kernel_initializer='glorot_normal',
-    #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv3)
-    # deconv3 = KL.BatchNormalization()(deconv3)
-    # deconv3 = KL.Activation('relu')(deconv3)
-    # deconv3 = KL.Conv2D(128, (3, 3), padding='same',
-    #                    kernel_initializer='glorot_normal',
-    #                    kernel_regularizer=KR.l2(self.WEIGHT_DECAY))(deconv3)
-    # deconv3 = KL.BatchNormalization()(deconv3)
-    # deconv3 = KL.Activation('relu')(deconv3)
-
-    deconv4 = KL.Conv2DTranspose(64, (2, 2), strides=(2, 2), padding='valid',
-                                  kernel_initializer='glorot_normal',
-                                  kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(conv5)
-    deconv4 = KL.Activation('relu')(deconv4)
-    deconv4 = KL.Concatenate(axis=3)([conv4, deconv4])
-    deconv4 = KL.Conv2D(64, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv4)
-    deconv4 = KL.BatchNormalization()(deconv4)
-    deconv4 = KL.Activation('relu')(deconv4)
-    deconv4 = KL.Conv2D(64, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv4)
-    deconv4 = KL.BatchNormalization()(deconv4)
-    deconv4 = KL.Activation('relu')(deconv4)
-
-    deconv5 = KL.Conv2DTranspose(32, (2, 2), strides=(2, 2), padding='valid',
-                                 kernel_initializer='glorot_normal',
-                                 kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv4)
-    deconv5 = KL.Activation('relu')(deconv5)
-    deconv5 = KL.Concatenate(axis=3)([conv3, deconv5])
-    deconv5 = KL.Conv2D(32, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv5)
-    deconv5 = KL.BatchNormalization()(deconv5)
-    deconv5 = KL.Activation('relu')(deconv5)
-    deconv5 = KL.Conv2D(32, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv5)
-    deconv5 = KL.BatchNormalization()(deconv5)
-    deconv5 = KL.Activation('relu')(deconv5)
-
-    deconv6 = KL.Conv2DTranspose(16, (2, 2), strides=(2, 2), padding='valid',
-                                 kernel_initializer='glorot_normal',
-                                 kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv5)
-    deconv6 = KL.Activation('relu')(deconv6)
-    deconv6 = KL.Concatenate(axis=3)([conv2, deconv6])
-    deconv6 = KL.Conv2D(16, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv6)
-    deconv6 = KL.BatchNormalization()(deconv6)
-    deconv6 = KL.Activation('relu')(deconv6)
-    deconv6 = KL.Conv2D(16, (3, 3), padding='same',
-                        kernel_initializer='glorot_normal',
-                        kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv6)
-    deconv6 = KL.BatchNormalization()(deconv6)
-    deconv6= KL.Activation('relu')(deconv6)
-
-    deconv7 = KL.Conv2DTranspose(8, (2, 2), strides=(2, 2), padding='valid',
-                                 kernel_initializer='glorot_normal',
-                                 kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv6)
-    deconv7 = KL.Activation('relu')(deconv7)
-    deconv7 = KL.Concatenate(axis=3)([conv1, deconv7])
-    deconv7 = KL.Conv2D(8, (3, 3), padding='same',
-                       kernel_initializer='glorot_normal',
-                       kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv7)
-    deconv7 = KL.BatchNormalization()(deconv7)
-    deconv7 = KL.Activation('relu')(deconv7)
-    deconv7 = KL.Conv2D(8, (3, 3), padding='same',
-                       kernel_initializer='glorot_normal',
-                       kernel_regularizer=KR.l2(config.WEIGHT_DECAY))(deconv7)
-    deconv7 = KL.BatchNormalization()(deconv7)
-    deconv7 = KL.Activation('relu')(deconv7)
-    print(deconv7.get_shape())
-
-    classify = KL.Conv2D(1, (1, 1),
-                         activation='sigmoid')(deconv7)
-
-    return classify
-
-
-def build_unet_loss_graph(target_masks, pred_masks):
-    loss = K.binary_crossentropy(target_masks, pred_masks)
-    loss = K.mean(loss)
-    return loss
-
-
 ############################################################
 #  Data Generator
 ############################################################
@@ -1382,7 +1233,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
         defined in MINI_MASK_SHAPE.
     """
     # Load image and mask
-    image = dataset.load_image(image_id)
+    image, rowWave, colWave = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     image, window, scale, padding = utils.resize_image(
@@ -1417,7 +1268,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, class_ids, bbox, mask
+    return image, image_meta, rowWave, colWave, class_ids, bbox, mask
 
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
@@ -1822,7 +1673,7 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Get GT bounding boxes and masks for image.
             image_id = image_ids[image_index]
-            image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
+            image, image_meta, rowWave, colWave, gt_class_ids, gt_boxes, gt_masks = \
                 load_image_gt(dataset, config, image_id, augment=augment,
                               use_mini_mask=config.USE_MINI_MASK)
 
@@ -1859,6 +1710,10 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
                     (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
+
+                batch_row_waves = np.zeros((batch_size, 128), dtype=np.float32)
+                batch_col_waves = np.zeros((batch_size, 128), dtype=np.float32)
+
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
                                                config.MAX_GT_INSTANCES))
@@ -1894,6 +1749,8 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
             batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
+            batch_row_waves[b] = rowWave
+            batch_col_waves[b] = colWave
             if random_rois:
                 batch_rpn_rois[b] = rpn_rois
                 if detection_targets:
@@ -1905,8 +1762,9 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Batch full?
             if b >= batch_size:
-                inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
-                          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
+                inputs = [batch_images, batch_image_meta, batch_row_waves, batch_col_waves,
+                          batch_rpn_match, batch_rpn_bbox,batch_gt_class_ids,
+                          batch_gt_boxes, batch_gt_masks]
                 outputs = []
 
                 if random_rois:
@@ -1976,6 +1834,8 @@ class MaskRCNN():
         input_image = KL.Input(
             shape=config.IMAGE_SHAPE.tolist(), name="input_image")
         input_image_meta = KL.Input(shape=[None], name="input_image_meta")
+        input_row_wave = KL.Input(shape=(128,), name="input_row_wave")
+        input_col_wave = KL.Input(shape=(128,), name="input_col_wave")
         if mode == "training":
             # RPN GT
             input_rpn_match = KL.Input(
@@ -2007,11 +1867,17 @@ class MaskRCNN():
                     shape=[config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], None],
                     name="input_gt_masks", dtype=bool)
 
+        # Input Renet
+        # input_renet = renet_block(input_image, input_row_wave, input_col_wave,
+        #                           patch_size=(2, 2), hidden_units=32, stage='input_renet')
+        # input_renet = KL.UpSampling2D(size=(2, 2))(input_renet)
+
         # Build the shared convolutional layers.
         # Bottom-up Layers
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
-        _, C2, C3, C4, C5 = resnet_graph(input_image, "resnet101", stage5=True)
+        _, C2, C3, C4, C5 = resnet_graph(input_image, input_row_wave, input_col_wave,
+                                         "resnet18", stage5=True)
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(256, (1, 1), name='fpn_c5p5')(C5)
@@ -2124,7 +1990,7 @@ class MaskRCNN():
                 [target_mask, target_class_ids, mrcnn_mask])
 
             # Model
-            inputs = [input_image, input_image_meta,
+            inputs = [input_image, input_image_meta, input_row_wave, input_col_wave,
                       input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
             if not config.USE_RPN_ROIS:
                 inputs.append(input_rois)
@@ -2158,7 +2024,7 @@ class MaskRCNN():
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            model = KM.Model([input_image, input_image_meta],
+            model = KM.Model([input_image, input_image_meta, input_row_wave, input_col_wave],
                              [detections, mrcnn_class, mrcnn_bbox,
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox],
                              name='mask_rcnn')
@@ -2186,6 +2052,10 @@ class MaskRCNN():
             return None, None
         # Pick last directory
         dir_name = os.path.join(self.model_dir, dir_names[-1])
+
+        dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180129T1305'
+        print (dir_name)
+
         # Find the last checkpoint
         checkpoints = next(os.walk(dir_name))[2]
         checkpoints = filter(lambda f: f.startswith("mask_rcnn"), checkpoints)
@@ -2348,6 +2218,9 @@ class MaskRCNN():
                                         int(m.group(4)), int(m.group(5)))
                 self.epoch = int(m.group(6)) + 1
 
+        self.epoch = self.epoch - 1
+        print ('init_epoche', self.epoch)
+
         # Directory for training logs
         self.log_dir = os.path.join(self.model_dir, "{}{:%Y%m%dT%H%M}".format(
             self.config.NAME.lower(), now))
@@ -2357,15 +2230,6 @@ class MaskRCNN():
             self.config.NAME.lower()))
         self.checkpoint_path = self.checkpoint_path.replace(
             "*epoch*", "{epoch:04d}")
-
-
-    def build_unet(self):
-
-
-
-    def train_unet(self, train_dataset, val_dataset, learning_rate, epochs, layers):
-
-
 
     def train(self, train_dataset, val_dataset, learning_rate, epochs, layers):
         """Train the model.
@@ -2534,7 +2398,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def detect(self, images, verbose=0):
+    def detect(self, images, row_waves, col_waves, verbose=0):
         """Runs the detection pipeline.
 
         images: List of images, potentially of different sizes.
@@ -2549,26 +2413,19 @@ class MaskRCNN():
         assert len(
             images) == self.config.BATCH_SIZE, "len(images) must be equal to BATCH_SIZE"
 
-        '''
         if verbose:
             log("Processing {} images".format(len(images)))
             for image in images:
                 log("image", image)
-        '''
-
         # Mold inputs to format expected by the neural network
         molded_images, image_metas, windows = self.mold_inputs(images)
-
-        '''
         if verbose:
             log("molded_images", molded_images)
             log("image_metas", image_metas)
-        '''
-
         # Run object detection
         detections, mrcnn_class, mrcnn_bbox, mrcnn_mask, \
             rois, rpn_class, rpn_bbox =\
-            self.keras_model.predict([molded_images, image_metas], verbose=0)
+            self.keras_model.predict([molded_images, image_metas, row_waves, col_waves], verbose=0)
         # Process detections
         results = []
         for i, image in enumerate(images):

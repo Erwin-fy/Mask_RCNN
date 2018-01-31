@@ -2,14 +2,14 @@ import os
 import model_refine as model
 from cxr import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 ROOT_DIR = os.getcwd()
 
 # Directory to save weights
-MODEL_DIR = os.path.join(ROOT_DIR, "logs", "JSRT", "crop_preserve", "256_ch_512_size")
+MODEL_DIR = os.path.join(ROOT_DIR, "weights")
 
-UNET_MODEL_PATH = os.path.join(MODEL_DIR, "crop_preserve", "256_ch_512_size.h5")
+UNET_MODEL_PATH = os.path.join(MODEL_DIR, "crop_preserve", "256_ch_512_size.hdf5")
 
 
 config = CxrConfig()
@@ -19,7 +19,7 @@ class TrainConfig(config.__class__):
     # Run detection on one image at a time
     GPU_COUNT = 1
     IMAGES_PER_GPU = 8
-    MEAN_PIXEL = np.array([191.6, 191.6, 191.6, 0.])
+    MEAN_PIXEL = np.array([123.7, 116.8, 103.9, 0.])
     NUM_CLASSES = 1
 
     LEARNING_RATE = 0.001
@@ -44,34 +44,31 @@ config.display()
 
 # Training dataset
 dataset_train = CxrDataset()
-dataset_train.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/train_id.txt')
+dataset_train.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/train_id.txt')
 dataset_train.prepare()
 
 # val dataset
 dataset_val= CxrDataset()
-dataset_val.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/val_id.txt')
+dataset_val.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/val_id.txt')
 dataset_val.prepare()
 
 # Create model in training mode
-unet = model.UNet(mode="training", config=config,
-                          model_dir=MODEL_DIR)
+model = model.UNet(config)
 
 
-# model.load_weights(UNET_MODEL_PATH)
+model.load_weights(UNET_MODEL_PATH)
 #
 # model.train(dataset_train, dataset_val,
 #             learning_rate=config.LEARNING_RATE,
 #             epochs=10,
 #             layers="heads")
 #
-unet.train(dataset_train, dataset_val,
-            learning_rate=config.LEARNING_RATE / 10,
-            epochs=50,
-            layers="all")
-
 # model.train(dataset_train, dataset_val,
-#             learning_rate=config.LEARNING_RATE / 100,
-#             epochs=20,
+#             learning_rate=config.LEARNING_RATE / 10,
+#             epochs=30,
 #             layers="all")
-model_path = os.path.join(MODEL_DIR, "256_ch_512_size.h5")
-unet.model.save_weights(model_path)
+
+model.train(dataset_train, dataset_val,
+            learning_rate=config.LEARNING_RATE / 100,
+            epochs=20,
+            layers="all")

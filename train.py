@@ -1,10 +1,10 @@
 import os
 
-import model_res18 as modellib
+import model_res18_wave as modellib
 
 from cxr import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -14,19 +14,19 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # Path to COCO trained weights
 COCO_MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
-RESNET18_MODEL_PATH = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18.h5")
+RESNET18_MODEL_PATH = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet_C5_wave.h5")
 
 config = CxrConfig()
 config.display()
 
 # Training dataset
 dataset_train = CxrDataset()
-dataset_train.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/train_id.txt')
+dataset_train.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/odd_id.txt')
 dataset_train.prepare()
 
 # val dataset
 dataset_val= CxrDataset()
-dataset_val.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/val_id.txt')
+dataset_val.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/even_id.txt')
 dataset_val.prepare()
 
 # Create model in training mode
@@ -34,7 +34,7 @@ model = modellib.MaskRCNN(mode="training", config=config,
                           model_dir=MODEL_DIR)
 
 # Which weights to start with?
-init_with = "last"  # imagenet, coco, or last
+init_with = "Res18"  # imagenet, coco, or last
 
 if init_with == "imagenet":
     model.load_weights(model.get_imagenet_weights(), by_name=True)
@@ -69,11 +69,11 @@ elif init_with == "Res18":
 # pass a regular expression to select which layers to
 # train by name pattern.
 model.train(dataset_train, dataset_val,
-            learning_rate=config.LEARNING_RATE,
+            learning_rate=config.LEARNING_RATE / 10,
             epochs=100,
             layers="all")
 
-model_path = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet_C2toC5.h5")
+model_path = os.path.join(MODEL_DIR, "res18_renet_C5_wave_800JSRT_aug.h5")
 model.keras_model.save_weights(model_path)
 
 
