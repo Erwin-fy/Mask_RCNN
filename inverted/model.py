@@ -5,6 +5,8 @@ import re
 import logging
 import numpy as np
 import cv2
+import skimage.color
+
 import tensorflow as tf
 import keras
 import keras.backend as K
@@ -14,7 +16,6 @@ import keras.regularizers as KR
 import keras.engine as KE
 import keras.models as KM
 from keras import losses
-
 
 import config
 from cxr import *
@@ -78,6 +79,9 @@ def load_image_gt(dataset, config, image_id, augment=False):
         min_dim=config.IMAGE_MIN_DIM,
         max_dim=config.IMAGE_MAX_DIM,
         padding=config.IMAGE_PADDING)
+
+    # image = skimage.color.rgb2gray(image)
+    # image = np.expand_dims(image, axis=2)
     mask = utils.resize_mask(mask, scale, padding)
 
     # Random horizontal flips.
@@ -159,78 +163,12 @@ def data_generator(dataset, config, shuffle=True, augment=True, batch_size=1):
                 raise
 
 
-def identity_block(input_tensor, kernel_size, filters, stage, block,
-                   dilation_rate=(1, 1), use_bias=True):
-    """The identity_block is the block that has no conv layer at shortcut
-    # Arguments
-        input_tensor: input tensor
-        kernel_size: defualt 3, the kernel size of middle conv layer at main path
-        filters: list of integers, the nb_filters of 3 conv layer at main path
-        stage: integer, current stage label, used for generating layer names
-        block: 'a','b'..., current block label, used for generating layer names
-    """
-    nb_filter1, nb_filter2 = filters
-    conv_name_base = 'res' + str(stage) + block + '_branch'
-    bn_name_base = 'bn' + str(stage) + block + '_branch'
-
-    x = KL.Conv2D(nb_filter1, (1, 1), dilation_rate=dilation_rate,
-                  name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
-    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2a')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
-                  dilation_rate=dilation_rate, name=conv_name_base + '2b',
-                  use_bias=use_bias)(x)
-    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2b')(x)
-
-    x = KL.Add()([x, input_tensor])
-    x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
-    return x
-
-
-def conv_block(input_tensor, kernel_size, filters, stage, block,
-               strides=(2, 2), use_bias=True):
-    """conv_block is the block that has a conv layer at shortcut
-    # Arguments
-        input_tensor: input tensor
-        kernel_size: defualt 3, the kernel size of middle conv layer at main path
-        filters: list of integers, the nb_filters of 3 conv layer at main path
-        stage: integer, current stage label, used for generating layer names
-        block: 'a','b'..., current block label, used for generating layer names
-    Note that from stage 3, the first conv layer at main path is with subsample=(2,2)
-    And the shortcut should have subsample=(2,2) as well
-    """
-    nb_filter1, nb_filter2 = filters
-    conv_name_base = 'res' + str(stage) + block + '_branch'
-    bn_name_base = 'bn' + str(stage) + block + '_branch'
-
-    x = KL.Conv2D(nb_filter1, (1, 1), strides=strides,
-                  name=conv_name_base + '2a', use_bias=use_bias)(input_tensor)
-    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2a')(x)
-    x = KL.Activation('relu')(x)
-
-    x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
-                  name=conv_name_base + '2b', use_bias=use_bias)(x)
-    x = KL.BatchNormalization(axis=3, name=bn_name_base + '2b')(x)
-
-    shortcut = KL.Conv2D(nb_filter2, (1, 1), strides=strides,
-                         name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
-    shortcut = KL.BatchNormalization(axis=3, name=bn_name_base + '1')(shortcut)
-
-    x = KL.Add()([x, shortcut])
-    x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
-    return x
-
-
 class Net():
     def __init__(self, mode, config, model_dir):
         self.mode = mode
         self.config = config
         self.WEIGHT_DECAY = config.WEIGHT_DECAY
-        if config.concat:
-            self.input_shape = (self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 4)
-        else:
-            self.input_shape = (self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 3)
+        self.input_shape = (self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 3)
 
         self.model_dir = model_dir
         self.set_log_dir()
@@ -245,30 +183,100 @@ class Net():
     def build(self):
         input_image = KL.Input(shape=self.input_shape, name='input_image')
 
-        x = KL.ZeroPadding2D((2, 2))(input_image)
-        x = KL.Conv2D(32, (5, 5), name='conv1', use_bias=True)(x)
-        x = KL.BatchNormalization(axis=3, name='bn_conv1')(x)
-        x = KL.Activation('relu')(x)
-        x = KL.Conv2D(32, (3, 3), padding='same', name='conv2', use_bias=True)(x)
-        x = KL.BatchNormalization(axis=3, name='bn_conv2')(x)
-        x = KL.Activation('relu')(x)
+        if self.mode == 'training':
+            rate = 0.1
+        else:
+            rate = 0
 
-        x = conv_block(x, 3, [32, 32], stage=3, block='a')
-        x = identity_block(x, 3, [32, 32], stage=3, block='b')
-        x = identity_block(x, 3, [32, 32], stage=3, block='c')
+        conv0 = KL.Conv2D(256, (3, 3), padding='same')(input_image)
+        conv0 = KL.Activation('elu')(conv0)
+        conv0 = KL.Dropout(rate=rate)(conv0)
+        conv0 = KL.Conv2D(256, (3, 3), padding='same')(conv0)
+        conv0 = KL.Activation('elu')(conv0)
+        conv0 = KL.Dropout(rate=rate)(conv0)
 
-        x = conv_block(x, 3, [32, 32], stage=4, block='a')
-        x = identity_block(x, 3, [32, 32], stage=4, block='b', dilation_rate=(3, 3))
-        x = identity_block(x, 3, [32, 32], stage=4, block='c', dilation_rate=(3, 3))
+        down0 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv0)
 
-        classify = KL.Conv2D(2, (1, 1), name='classifier')(x)
-        classify = KL.Lambda(lambda t: tf.image.resize_images(
-            t, [self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM]))(classify)
+        conv1 = KL.Conv2D(128, (3, 3), padding='same')(down0)
+        conv1 = KL.Activation('elu')(conv1)
+        conv1 = KL.Dropout(rate=rate)(conv1)
+        conv1 = KL.Conv2D(128, (3, 3), padding='same')(conv1)
+        conv1 = KL.Activation('elu')(conv1)
+        conv1 = KL.Dropout(rate=rate)(conv1)
+
+        down1 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv1)
+
+        conv2 = KL.Conv2D(64, (3, 3), padding='same')(down1)
+        conv2 = KL.Activation('elu')(conv2)
+        conv2 = KL.Dropout(rate=rate)(conv2)
+        conv2 = KL.Conv2D(64, (3, 3), padding='same')(conv2)
+        conv2 = KL.Activation('elu')(conv2)
+        conv2 = KL.Dropout(rate=rate)(conv2)
+
+        down2 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv2)
+
+        conv3 = KL.Conv2D(32, (3, 3), padding='same')(down2)
+        conv3 = KL.Activation('elu')(conv3)
+        conv3 = KL.Dropout(rate=rate)(conv3)
+        conv3 = KL.Conv2D(32, (3, 3), padding='same')(conv3)
+        conv3 = KL.Activation('elu')(conv3)
+        conv3 = KL.Dropout(rate=rate)(conv3)
+
+        down3 = KL.MaxPool2D((2, 2), strides=(2, 2))(conv3)
+
+        conv4 = KL.Conv2D(16, (3, 3), padding='same')(down3)
+        conv4 = KL.Activation('elu')(conv4)
+        conv4 = KL.Dropout(rate=rate)(conv4)
+        conv4 = KL.Conv2D(16, (3, 3), padding='same')(conv4)
+        conv4 = KL.Activation('elu')(conv4)
+        conv4 = KL.Dropout(rate=rate)(conv4)
+
+        up3 = KL.UpSampling2D(size=(2, 2))(conv4)
+
+        conv5 = KL.Conv2D(32, (3, 3), padding='same')(up3)
+        conv5 = KL.Activation('elu')(conv5)
+        conv5 = KL.Dropout(rate=rate)(conv5)
+        conv5 = KL.Concatenate(axis=3)([conv5, conv3])
+        conv5 = KL.Conv2D(32, (3, 3), padding='same')(conv5)
+        conv5 = KL.Activation('elu')(conv5)
+        conv5 = KL.Dropout(rate=rate)(conv5)
+
+        up2 = KL.UpSampling2D(size=(2, 2))(conv5)
+
+        conv6 = KL.Conv2D(64, (3, 3), padding='same')(up2)
+        conv6 = KL.Activation('elu')(conv6)
+        conv6 = KL.Dropout(rate=rate)(conv6)
+        conv6 = KL.Concatenate(axis=3)([conv6, conv2])
+        conv6 = KL.Conv2D(64, (3, 3), padding='same')(conv6)
+        conv6 = KL.Activation('elu')(conv6)
+        conv6 = KL.Dropout(rate=rate)(conv6)
+
+        up1 = KL.UpSampling2D(size=(2, 2))(conv6)
+
+        conv7 = KL.Conv2D(128, (3, 3), padding='same')(up1)
+        conv7 = KL.Activation('elu')(conv7)
+        conv7 = KL.Dropout(rate=rate)(conv7)
+        conv7 = KL.Concatenate(axis=3)([conv7, conv1])
+        conv7 = KL.Conv2D(128, (3, 3), padding='same')(conv7)
+        conv7 = KL.Activation('elu')(conv7)
+        conv7 = KL.Dropout(rate=rate)(conv7)
+
+        up0 = KL.UpSampling2D(size=(2, 2))(conv7)
+
+        conv8 = KL.Conv2D(256, (3, 3), padding='same')(up0)
+        conv8 = KL.Activation('elu')(conv8)
+        conv8 = KL.Dropout(rate=rate)(conv8)
+        conv8 = KL.Concatenate(axis=3)([conv8, conv0])
+        conv8 = KL.Conv2D(256, (3, 3), padding='same')(conv8)
+        conv8 = KL.Activation('elu')(conv8)
+        conv8 = KL.Dropout(rate=rate)(conv8)
+
+        classify = KL.Conv2D(1, (1, 1), name='classifier', activation='sigmoid')(conv8)
 
         if self.mode == 'train':
             input_mask = KL.Input(shape=[self.config.IMAGE_MAX_DIM, self.config.IMAGE_MAX_DIM, 1],
                                   name='input_mask')
-            loss = KL.Lambda(lambda x: losses.sparse_categorical_crossentropy(*x), name="loss")(
+            loss = KL.Lambda(lambda x: losses.binary_crossentropy(*x), name="loss")(
                 [input_mask, classify])
 
             inputs = [input_image, input_mask]
@@ -486,48 +494,22 @@ class Net():
 
     def evaluation(self, dataset, filepath):
         image_ids = dataset.image_ids
-        # threshold = 0.5
+        threshold = 0.5
         iu = np.zeros(len(image_ids))
-        record_txt = open('/media/Disk/wangfuyu/Mask_RCNN/korea/record.txt', 'w')
+        record_txt = open('/media/Disk/wangfuyu/Mask_RCNN/inverted/record.txt', 'w')
         record_txt.write('filename' + ' ' + 'iu' + '\n')
-
-        images_dir = '/media/Disk/wangfuyu/Mask_RCNN/korea/256/images'
-        masks_dir = '/media/Disk/wangfuyu/Mask_RCNN/korea/256/masks'
-
-        isExists = os.path.exists(images_dir)
-        if not isExists:
-            os.makedirs(images_dir)
-        isExists = os.path.exists(masks_dir)
-        if not isExists:
-            os.makedirs(masks_dir)
 
         for index, image_id in enumerate(image_ids):
             # Load image
             image, gt_mask = load_image_gt(dataset, self.config, image_id)
-
-            info = dataset.image_info[image_id]
-            filename = info['filename']
-            cv2.imwrite(os.path.join(images_dir, filename + '.jpg'), image,
-                        [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
-            cv2.imwrite(os.path.join(masks_dir, filename + '.png'), (gt_mask*255).astype(np.uint8),
-                        [int(cv2.IMWRITE_PNG_COMPRESSION), 9])
-
-            '''
             image = mold_image(image.astype(np.float32), self.config)
 
             pred = self.model.predict(np.array([image]), verbose=0)
+            pred = np.reshape(pred, (pred.shape[1], pred.shape[2]))
+            print (pred.shape)
+            pred[pred < threshold] = 0
+            pred[pred > threshold] = 1
 
-            print (pred.shape)
-            pred = np.argmax(pred, axis=3)
-            print (pred.shape)
-            pred = np.squeeze(pred, axis=0)
-            print (pred.shape)
-            pred = np.expand_dims(pred, axis=2)
-
-            print (pred.shape)
-
-            # pred[pred < threshold] = 0
-            # pred[pred > threshold] = 1
             _, _, iou, _, dice = self.compute_IOU(pred.astype(np.int64), gt_mask.astype(np.int64))
             iu[index] = iou[1]
 
@@ -535,7 +517,7 @@ class Net():
             filename = info['filename']
 
             utils.save_results(os.path.join(filepath, filename + '.png'),
-                               (pred.squeeze(axis=2) * 255).astype(np.uint8))
+                               (pred * 255).astype(np.uint8))
 
             record_txt.write(filename + ' ' + str(iu[index])[0:8] + '\n')
 
@@ -543,7 +525,6 @@ class Net():
             #                    (np.reshape(pred, (pred.shape[1], pred.shape[2]))).astype(np.uint8))
 
             print (filename, iu[index], dice, pred.sum())
-            '''
 
         return iu
 

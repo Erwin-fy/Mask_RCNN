@@ -171,7 +171,7 @@ class CxrDataset(utils.Dataset):
         mask_path = os.path.join(self.mask_dir, filename + '.png')
 
         mask = skimage.io.imread(mask_path)
-
+        mask = skimage.color.rgb2gray(mask)
         mask = np.expand_dims(mask, axis=2)
 
         return mask

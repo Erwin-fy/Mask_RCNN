@@ -599,8 +599,11 @@ class UNet():
         if not isExists:
             os.makedirs(box_dir)
 
-        hed_results = '/media/Disk/wangfuyu/Mask_RCNN/refine/HED/JSRT/renet_C5_wave/512_320/Segresult/'
-        val_box_info = open('/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/box_info.txt', 'r')
+        hed_results = '/media/Disk/wangfuyu/Mask_RCNN/refine/HED/cxr/renet_C5_GRU/512_320/Segresult/'
+        val_box_info = open('/media/Disk/wangfuyu/Mask_RCNN/crop_results/renet_C5_GRU/512_320/box_info.txt', 'r')
+        # val_box_info = open('/media/Disk/wangfuyu/Mask_RCNN/crop_results/renet_C5_wave/512_320/box_info.txt', 'r')
+        # old_val_box_info = open('/media/Disk/wangfuyu/Mask_RCNN/box/cxr/renet_C5_wave/before/box_info.txt', 'r')
+
         lines = val_box_info.readlines()
         box_dict = {}
 
@@ -614,6 +617,19 @@ class UNet():
 
             box_dict[filename] = [y1, x1, y2, x2]
 
+        # lines = old_val_box_info.readlines()
+        # old_box_dict = {}
+        #
+        # for line in lines:
+        #     tmp = re.split(' ', line)
+        #     filename = tmp[0]
+        #     y1 = int(tmp[1])
+        #     x1 = int(tmp[2])
+        #     y2 = int(tmp[3])
+        #     x2 = int(tmp[4])
+        #
+        #     old_box_dict[filename] = [y1, x1, y2, x2]
+
         image_ids = dataset.image_ids
         threshold = 0.5
 
@@ -626,21 +642,23 @@ class UNet():
             filename = info['filename']
             y1, x1, y2, x2 = box_dict[filename]
             # print(y1, y2, y1 + y2)
-
+            #
+            print (filename)
             pred = cv2.imread(hed_results + filename + '.jpg')
             pred = cv2.cvtColor(pred, cv2.COLOR_BGR2GRAY)
             pred = pred / 255.0
 
             # pred = self.model.predict(np.array([image]), verbose=0)
             # pred = np.reshape(pred, (pred.shape[1], pred.shape[2]))
-            # # print (pred.shape)
+            print (pred.shape)
             pred = scipy.misc.imresize(pred, (y2 - y1, x2 - x1), interp='bilinear').astype(np.float32) / 255.0
             # pred[pred < threshold] = 0
             # pred[pred > threshold] = 1
-            # # pred.squeeze(axis=2)
+            # pred.squeeze(axis=2)
 
             result = np.zeros((1024, 1024))
             result[y1: y2, x1: x2] = pred
+            # y1, x1, y2, x2 = old_box_dict[filename]
 
             cv2.imwrite(os.path.join(box_dir, filename + '.png'),
                         (result*255).astype(np.uint8), [int(cv2.IMWRITE_PNG_COMPRESSION), 9])

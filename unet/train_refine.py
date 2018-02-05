@@ -2,7 +2,7 @@ import os
 import model_refine as model
 from cxr import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 ROOT_DIR = os.getcwd()
 
@@ -65,7 +65,7 @@ unet = model.UNet(mode="training", config=config,
 #             layers="heads")
 #
 unet.train(dataset_train, dataset_val,
-            learning_rate=config.LEARNING_RATE / 10,
+            learning_rate=config.LEARNING_RATE,
             epochs=50,
             layers="all")
 
@@ -73,5 +73,5 @@ unet.train(dataset_train, dataset_val,
 #             learning_rate=config.LEARNING_RATE / 100,
 #             epochs=20,
 #             layers="all")
-model_path = os.path.join(MODEL_DIR, "256_ch_512_size.h5")
+model_path = os.path.join(MODEL_DIR, "JSRT.h5")
 unet.model.save_weights(model_path)

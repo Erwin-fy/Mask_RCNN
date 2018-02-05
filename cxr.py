@@ -65,10 +65,10 @@ class CxrDataset(utils.Dataset):
     def __init__(self):
         super(CxrDataset, self).__init__()
 
-        # self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/images'
-        # self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/masks'
-        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/images'
-        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/masks'
+        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/images'
+        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/masks'
+        # self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/images'
+        # self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/masks'
 
     def load_cxr(self, txt):
         """Load Dataset

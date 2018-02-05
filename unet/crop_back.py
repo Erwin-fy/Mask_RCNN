@@ -7,10 +7,10 @@ import re
 ROOT_DIR = os.getcwd()
 
 
-# box_dir = os.path.join(ROOT_DIR, "results", "crop_preserve", "renet_C5_wave", "512_320", "box")
-# back_dir = os.path.join(ROOT_DIR, "results", "crop_preserve", "renet_C5_wave", "512_320", "back")
-box_dir = "/media/Disk/wangfuyu/Mask_RCNN/refine/HED/JSRT/renet_C5_wave/512_320/box"
-back_dir = "/media/Disk/wangfuyu/Mask_RCNN/refine/HED/JSRT/renet_C5_wave/512_320/back"
+# box_dir = os.path.join(ROOT_DIR, "results", "crop_preserve", "JSRT/800", "renet_C5_wave", "512_320", "box")
+# back_dir = os.path.join(ROOT_DIR, "results", "crop_preserve", "JSRT/800", "renet_C5_wave", "512_320", "back")
+box_dir = "/media/Disk/wangfuyu/Mask_RCNN/refine/HED/cxr/renet_C5_GRU/512_320/box"
+back_dir = "/media/Disk/wangfuyu/Mask_RCNN/refine/HED/cxr/renet_C5_GRU/512_320/back"
 
 '''
 mask_results_dir = '/media/Disk/wangfuyu/Mask_RCNN/unet/results/crop'
@@ -38,7 +38,8 @@ for line in lines:
 isExists = os.path.exists(back_dir)
 if not isExists:
     os.makedirs(back_dir)
-val_id = open('/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/even_id.txt')
+val_id = open('/media/Disk/wangfuyu/Mask_RCNN/data/cxr/val_id.txt')
+# val_id = open('/media/Disk/wangfuyu/Mask_RCNN/data/cxr/800/JSRT/even_id.txt')
 lines = val_id.readlines()
 for line in lines:
     # print (line + '-')

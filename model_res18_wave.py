@@ -85,6 +85,7 @@ def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden
     num_patchesH = tf.cast(height / patch_height, tf.int32)
     num_patchesW = tf.cast(width / patch_width, tf.int32)
 
+    # row first
     input_tensor = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
                                  num_patchesW, patch_width, channels)))(input_tensor)
@@ -104,8 +105,10 @@ def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden
     input_tensor = KL.Concatenate(axis=2)([input_tensor, input_row_wave])
     print (K.int_shape(input_tensor))
 
-    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-                         name="H_LSTM_" + str(stage))(input_tensor)
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(input_tensor)
+    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
+                         name="H_GRU_" + str(stage))(input_tensor)
     # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x)
@@ -125,14 +128,115 @@ def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden
     x = KL.Concatenate(axis=2)([x, input_col_wave])
     print (K.int_shape(x))
 
-    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-                         name="V_LSTM_" + str(stage))(x)
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(x)
+    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
+                         name="V_GRU_" + str(stage))(x)
     # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, psize)))(x)
     # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+
+    ### col first
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
+    #                              num_patchesW, patch_width, channels)))(input_tensor)
+    #
+    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(input_tensor)
+    #
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+    #
+    # input_tensor = KL.Concatenate(axis=2)([input_tensor, input_col_wave])
+    # print (K.int_shape(input_tensor))
+    #
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(input_tensor)
+    # # print (K.int_shape(x))
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x)
+    #
+    # psize = 2 * hidden_units
+    # x = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+    #
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x)
+    #
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+    #
+    # x = KL.Concatenate(axis=2)([x, input_row_wave])
+    # print (K.int_shape(x))
+    #
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(x)
+    # # print (K.int_shape(x))
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, psize)))(x)
+
+    # concat
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
+    #                              num_patchesW, patch_width, channels)))(input_tensor)
+    #
+    # # batch * num_patchesH * num_patchesW * patch_height * patch_width * channels
+    # x1 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 1, 3, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesH || num_patchesW || patch_height * patch_width * channels
+    # x1 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x1)
+    #
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+    #
+    # x1 = KL.Concatenate(axis=2)([x1, input_row_wave])
+    # print (K.int_shape(x1))
+    #
+    # x1 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(x1)
+    # # print (K.int_shape(x))
+    # x1 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x1)
+    #
+    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
+    # x2 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
+    # x2 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x2)
+    #
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+    #
+    # x2 = KL.Concatenate(axis=2)([x2, input_col_wave])
+    # print (K.int_shape(x2))
+    #
+    # x2 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(x2)
+    # # print (K.int_shape(x))
+    # x2 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x2)
+    # x2 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x2)
+    #
+    # x = KL.Concatenate(axis=3)([x1, x2])
+    # print (K.int_shape(x))
 
     return x
 
@@ -230,15 +334,16 @@ def resnet_graph(input_image, input_row_wave, input_col_wave, architecture, stag
     C3 = x = identity_block(x, 3, [128, 128], stage=3, block='b')
     # x = identity_block(x, 3, [128, 128], stage=3, block='b')
     # x = renet_block(x, input_row_wave, input_col_wave,
-    #                 patch_size=(2, 2), hidden_units=64, stage=3)
-    # C3 = x = KL.UpSampling2D(size=(2, 2))(x)
+    #                 patch_size=(4, 4), hidden_units=32, stage=3)
+    # C3 = x = KL.UpSampling2D(size=(4, 4))(x)
 
     # Stage 4
     x = conv_block(x, 3, [256, 256], stage=4, block='a')
     C4 = x = identity_block(x, 3, [256, 256], stage=4, block='b')
     # x = identity_block(x, 3, [256, 256], stage=4, block='b')
-    # C4 = x = renet_block(x, input_row_wave, input_col_wave,
-    #                      patch_size=(1, 1), hidden_units=64, stage=4)
+    # x = renet_block(x, input_row_wave, input_col_wave,
+    #                      patch_size=(2, 2), hidden_units=64, stage=4)
+    # C4 = x = KL.UpSampling2D(size=(2, 2))(x)
 
     # Stage 5
     if stage5:
@@ -247,6 +352,10 @@ def resnet_graph(input_image, input_row_wave, input_col_wave, architecture, stag
         x = identity_block(x, 3, [512, 512], stage=5, block='b')
         C5 = x = renet_block(x, input_row_wave, input_col_wave,
                              patch_size=(1, 1), hidden_units=64, stage=5)
+        # renet = renet_block(x, input_row_wave, input_col_wave,
+        #                     patch_size=(1, 1), hidden_units=64, stage=5)
+        # C5 = KL.Concatenate(axis=3)([x, renet])
+
     else:
         C5 = None
     return [C1, C2, C3, C4, C5]
@@ -1895,6 +2004,10 @@ class MaskRCNN():
         P3 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p3")(P3)
         P4 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p4")(P4)
         P5 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p5")(P5)
+
+        # P5 = renet_block(P5, input_row_wave, input_col_wave,
+        #                  patch_size=(1, 1), hidden_units=128, stage=5)
+
         # P6 is used for the 5th anchor scale in RPN. Generated by
         # subsampling from P5 with stride of 2.
         P6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="fpn_p6")(P5)

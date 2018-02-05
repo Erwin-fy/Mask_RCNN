@@ -25,18 +25,20 @@ from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
 
 # Directory to save weights
-MODEL_DIR = os.path.join(ROOT_DIR, "weights")
+MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # UNET_MODEL_PATH = os.path.join(MODEL_DIR, "Hospital_fm_512ch_input512.hdf5")
 
-RESULTS_PATH = os.path.join(ROOT_DIR, "results", "crop_preserve", "renet_C5_wave", "512_320", "512_320_crop")
-BOX_PATH = os.path.join(ROOT_DIR, "refine", "HED/JSRT/renet_C5_wave/512_320", "box")
+RESULTS_PATH = os.path.join(ROOT_DIR, "results", "second", "crop_preserve", "JSRT", "renet_C5_wave", "512_320", "512_320_crop")
+# BOX_PATH = os.path.join(ROOT_DIR, "results", "crop_preserve", "JSRT/800", "renet_C5_wave", "512_320", "box")
+# BOX_PATH = '/media/Disk/wangfuyu/Mask_RCNN/box/cxr/renet_C5_wave/after/'
+BOX_PATH = '/media/Disk/wangfuyu/Mask_RCNN/refine/HED/cxr/renet_C5_GRU/512_320/box'
 
 isExists=os.path.exists(RESULTS_PATH)
 if not isExists:
@@ -50,7 +52,7 @@ class InferenceConfig(config.__class__):
     # Run detection on one image at a time
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
-    MEAN_PIXEL = np.array([123.7, 116.8, 103.9, 0.])
+    MEAN_PIXEL = np.array([191.6, 191.6, 191.6, 0.])
     NUM_CLASSES = 1
 
     LEARNING_RATE = 0.001
@@ -73,12 +75,15 @@ config = InferenceConfig()
 
 # val dataset
 dataset = CxrDataset()
-dataset.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/JSRT/800/renet_C5_wave/512_320/val_id.txt')
+# dataset.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/renet_C5_wave/512_320/val_id.txt')
+dataset.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/crop_results/renet_C5_GRU/512_320/val_id.txt')
 dataset.prepare()
 
 unet = model.UNet(mode="testing", config=config,
-                   model_dir=MODEL_DIR)
-unet.load_weights(filepath=config.get_weights_name(), by_name=False)
+                  model_dir=MODEL_DIR)
+
+# weights_path = os.path.join(MODEL_DIR, "JSRT/crop_preserve/256_ch_512_size", "JSRT.h5")
+# unet.load_weights(filepath=weights_path, by_name=False)
 # iu = unet.evaluation(dataset, RESULTS_PATH)
 # print(iu.mean())
 
