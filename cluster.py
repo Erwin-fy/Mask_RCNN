@@ -1,6 +1,7 @@
 import numpy as np
 import random
 
+
 def compute_iou(box1, box2):
     area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
     area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
@@ -50,14 +51,3 @@ def kmeans(k, boxes):
     print centroid_boxes
 
 
-boxes = np.zeros((6,4))
-boxes[0] = [1,2,3,4]
-boxes[1] = [2,3,4,5]
-boxes[2] = [4,5,6,7]
-boxes[3] = [8,1,9,7]
-boxes[4] = [5,3,6,9]
-boxes[5] = [4,5,8,7]
-
-
-kmeans(2, boxes)
-np.concatenate()
