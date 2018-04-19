@@ -70,7 +70,7 @@ class BatchNorm(KL.BatchNormalization):
 #  Renet block
 ############################################################
 
-def renet_block(input_tensor, patch_size, hidden_units, stage):
+def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden_units, stage):
     """
     input_tensor: bacth * height * width * channels
     patch_size: tuple
@@ -85,6 +85,7 @@ def renet_block(input_tensor, patch_size, hidden_units, stage):
     num_patchesH = tf.cast(height / patch_height, tf.int32)
     num_patchesW = tf.cast(width / patch_width, tf.int32)
 
+    # row first
     input_tensor = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
                                  num_patchesW, patch_width, channels)))(input_tensor)
@@ -96,8 +97,19 @@ def renet_block(input_tensor, patch_size, hidden_units, stage):
     input_tensor = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(input_tensor)
 
-    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True), name="H_LSTM_" + str(stage))(input_tensor)
-    print (K.int_shape(x))
+    input_row_wave = KL.Lambda(
+        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    input_row_wave = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+
+    input_tensor = KL.Concatenate(axis=2)([input_tensor, input_row_wave])
+    print (K.int_shape(input_tensor))
+
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(input_tensor)
+    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
+                         name="H_GRU_" + str(stage))(input_tensor)
+    # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x)
 
@@ -107,13 +119,124 @@ def renet_block(input_tensor, patch_size, hidden_units, stage):
 
     x = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x)
-    x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True), name="V_LSTM_" + str(stage))(x)
+
+    input_col_wave = KL.Lambda(
+        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    input_col_wave = KL.Lambda(
+        lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+
+    x = KL.Concatenate(axis=2)([x, input_col_wave])
+    print (K.int_shape(x))
+
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(x)
+    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
+                         name="V_GRU_" + str(stage))(x)
     # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, psize)))(x)
     # print (K.int_shape(x))
     x = KL.Lambda(
         lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+
+    ### col first
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
+    #                              num_patchesW, patch_width, channels)))(input_tensor)
+    #
+    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(input_tensor)
+    #
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+    #
+    # input_tensor = KL.Concatenate(axis=2)([input_tensor, input_col_wave])
+    # print (K.int_shape(input_tensor))
+    #
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(input_tensor)
+    # # print (K.int_shape(x))
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x)
+    #
+    # psize = 2 * hidden_units
+    # x = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
+    #
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x)
+    #
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+    #
+    # x = KL.Concatenate(axis=2)([x, input_row_wave])
+    # print (K.int_shape(x))
+    #
+    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(x)
+    # # print (K.int_shape(x))
+    # x = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, psize)))(x)
+
+    # concat
+    # input_tensor = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
+    #                              num_patchesW, patch_width, channels)))(input_tensor)
+    #
+    # # batch * num_patchesH * num_patchesW * patch_height * patch_width * channels
+    # x1 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 1, 3, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesH || num_patchesW || patch_height * patch_width * channels
+    # x1 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x1)
+    #
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
+    # input_row_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
+    #
+    # x1 = KL.Concatenate(axis=2)([x1, input_row_wave])
+    # print (K.int_shape(x1))
+    #
+    # x1 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="H_LSTM_" + str(stage))(x1)
+    # # print (K.int_shape(x))
+    # x1 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x1)
+    #
+    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
+    # x2 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
+    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
+    # x2 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x2)
+    #
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
+    # input_col_wave = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
+    #
+    # x2 = KL.Concatenate(axis=2)([x2, input_col_wave])
+    # print (K.int_shape(x2))
+    #
+    # x2 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
+    #                      name="V_LSTM_" + str(stage))(x2)
+    # # print (K.int_shape(x))
+    # x2 = KL.Lambda(
+    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x2)
+    # x2 = KL.Lambda(
+    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x2)
+    #
+    # x = KL.Concatenate(axis=3)([x1, x2])
+    # print (K.int_shape(x))
 
     return x
 
@@ -135,7 +258,7 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
         stage: integer, current stage label, used for generating layer names
         block: 'a','b'..., current block label, used for generating layer names
     """
-    nb_filter1, nb_filter2 = filters
+    nb_filter1, nb_filter2, nb_filter3 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -147,6 +270,11 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',
+                  use_bias=use_bias)(x)
+    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
 
     x = KL.Add()([x, input_tensor])
     x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
@@ -165,7 +293,7 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     Note that from stage 3, the first conv layer at main path is with subsample=(2,2)
     And the shortcut should have subsample=(2,2) as well
     """
-    nb_filter1, nb_filter2 = filters
+    nb_filter1, nb_filter2, nb_filter3 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -177,8 +305,13 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
+    x = KL.Activation('relu')(x)
 
-    shortcut = KL.Conv2D(nb_filter2, (1, 1), strides=strides,
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base +
+                  '2c', use_bias=use_bias)(x)
+    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
+
+    shortcut = KL.Conv2D(nb_filter3, (1, 1), strides=strides,
                          name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
     shortcut = BatchNorm(axis=3, name=bn_name_base + '1')(shortcut)
 
@@ -187,43 +320,38 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     return x
 
 
-def resnet_graph(input_image, architecture, stage5=False):
-    assert architecture in ["resnet18"]
+def resnet_graph(input_image, input_row_wave, input_col_wave, architecture, stage5=False):
+    assert architecture in ["resnet50", "resnet101"]
     # Stage 1
     x = KL.ZeroPadding2D((3, 3))(input_image)
     x = KL.Conv2D(64, (7, 7), strides=(2, 2), name='conv1', use_bias=True)(x)
     x = BatchNorm(axis=3, name='bn_conv1')(x)
     x = KL.Activation('relu')(x)
     C1 = x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
-    # x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
-    # C1 = x = renet_block(x, patch_size=(2, 2), hidden_units=64, stage=1)
-
     # Stage 2
-    x = conv_block(x, 3, [64, 64], stage=2, block='a', strides=(1, 1))
-    C2 = x = identity_block(x, 3, [64, 64], stage=2, block='b')
-    # x = identity_block(x, 3, [64, 64], stage=2, block='b')
-    # x = renet_block(x, patch_size=(2, 2), hidden_units=32, stage=2)
-    # C2 = x = KL.UpSampling2D(size=(2, 2))(x)
-
+    x = conv_block(x, 3, [64, 64, 256], stage=2, block='a', strides=(1, 1))
+    x = identity_block(x, 3, [64, 64, 256], stage=2, block='b')
+    C2 = x = identity_block(x, 3, [64, 64, 256], stage=2, block='c')
     # Stage 3
-    x = conv_block(x, 3, [128, 128], stage=3, block='a')
-    C3 = x = identity_block(x, 3, [128, 128], stage=3, block='b')
-    # x = identity_block(x, 3, [128, 128], stage=3, block='b')
-    # x = renet_block(x, patch_size=(2, 2), hidden_units=64, stage=3)
-    # C3 = x = KL.UpSampling2D(size=(2, 2))(x)
-
+    x = conv_block(x, 3, [128, 128, 512], stage=3, block='a')
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='b')
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='c')
+    C3 = x = identity_block(x, 3, [128, 128, 512], stage=3, block='d')
     # Stage 4
-    x = conv_block(x, 3, [256, 256], stage=4, block='a')
-    C4 = x = identity_block(x, 3, [256, 256], stage=4, block='b')
-    # x = identity_block(x, 3, [256, 256], stage=4, block='b')
-    # C4 = x = renet_block(x, patch_size=(1, 1), hidden_units=64, stage=4)
-
+    x = conv_block(x, 3, [256, 256, 1024], stage=4, block='a')
+    block_count = {"resnet50": 5, "resnet101": 22}[architecture]
+    for i in range(block_count):
+        x = identity_block(x, 3, [256, 256, 1024], stage=4, block=chr(98 + i))
+    C4 = x
     # Stage 5
     if stage5:
-        x = conv_block(x, 3, [512, 512,], stage=5, block='a')
-        C5 = x = identity_block(x, 3, [512, 512], stage=5, block='b')
-        # x = identity_block(x, 3, [512, 512], stage=5, block='b')
-        # C5 = x = renet_block(x, patch_size=(1, 1), hidden_units=64, stage=5)
+        x = conv_block(x, 3, [512, 512, 2048], stage=5, block='a')
+        x = identity_block(x, 3, [512, 512, 2048], stage=5, block='b')
+        # C5 = x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c')
+        x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c')
+        x = renet_block(x, input_row_wave, input_col_wave,
+                        patch_size=(1, 1), hidden_units=64, stage=5)
+        C5 = x = KL.Conv2D(2048, (1, 1), padding='same', name='convert_channel')(x)
     else:
         C5 = None
     return [C1, C2, C3, C4, C5]
@@ -853,6 +981,7 @@ def rpn_graph(feature_map, anchors_per_location, anchor_stride):
                        strides=anchor_stride,
                        name='rpn_conv_shared')(feature_map)
 
+
     # Anchor Score. [batch, height, width, anchors per location * 2].
     x = KL.Conv2D(2 * anchors_per_location, (1, 1), padding='valid',
                   activation='linear', name='rpn_class_raw')(shared)
@@ -990,12 +1119,16 @@ def build_fpn_mask_graph(rois, feature_maps,
 
     x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_mask_conv3")(x)
+    # x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same", dilation_rate=3),
+    #                        name="mrcnn_mask_conv3")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_mask_bn3')(x)
     x = KL.Activation('relu')(x)
 
     x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_mask_conv4")(x)
+    # x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same", dilation_rate=3),
+    #                        name="mrcnn_mask_conv4")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_mask_bn4')(x)
     x = KL.Activation('relu')(x)
@@ -1688,6 +1821,9 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
 
+                batch_row_waves = np.zeros((batch_size, 128), dtype=np.float32)
+                batch_col_waves = np.zeros((batch_size, 128), dtype=np.float32)
+
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
                                                config.MAX_GT_INSTANCES))
@@ -1723,6 +1859,8 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
             batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
+            batch_row_waves[b] = rowWave
+            batch_col_waves[b] = colWave
             if random_rois:
                 batch_rpn_rois[b] = rpn_rois
                 if detection_targets:
@@ -1734,7 +1872,7 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Batch full?
             if b >= batch_size:
-                inputs = [batch_images, batch_image_meta,
+                inputs = [batch_images, batch_image_meta, batch_row_waves, batch_col_waves,
                           batch_rpn_match, batch_rpn_bbox,batch_gt_class_ids,
                           batch_gt_boxes, batch_gt_masks]
                 outputs = []
@@ -1806,6 +1944,8 @@ class MaskRCNN():
         input_image = KL.Input(
             shape=config.IMAGE_SHAPE.tolist(), name="input_image")
         input_image_meta = KL.Input(shape=[None], name="input_image_meta")
+        input_row_wave = KL.Input(shape=(128,), name="input_row_wave")
+        input_col_wave = KL.Input(shape=(128,), name="input_col_wave")
         if mode == "training":
             # RPN GT
             input_rpn_match = KL.Input(
@@ -1838,14 +1978,16 @@ class MaskRCNN():
                     name="input_gt_masks", dtype=bool)
 
         # Input Renet
-        # input_renet = renet_block(input_image, patch_size=(2, 2), hidden_units=16, stage='input_renet')
+        # input_renet = renet_block(input_image, input_row_wave, input_col_wave,
+        #                           patch_size=(2, 2), hidden_units=32, stage='input_renet')
         # input_renet = KL.UpSampling2D(size=(2, 2))(input_renet)
 
         # Build the shared convolutional layers.
         # Bottom-up Layers
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
-        _, C2, C3, C4, C5 = resnet_graph(input_image, "resnet18", stage5=True)
+        _, C2, C3, C4, C5 = resnet_graph(input_image, input_row_wave, input_col_wave,
+                                         "resnet101", stage5=True)
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(256, (1, 1), name='fpn_c5p5')(C5)
@@ -1864,14 +2006,12 @@ class MaskRCNN():
         P4 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p4")(P4)
         P5 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p5")(P5)
 
-        # P2 = KL.Conv2D(256, (3, 3), padding="SAME", dilation_rate=1, name="atrous_p2")(C5)
-        # P3 = KL.Conv2D(256, (3, 3), padding="SAME", dilation_rate=2, name="atrous_p3")(C5)
-        # P4 = KL.Conv2D(256, (3, 3), padding="SAME", dilation_rate=3, name="atrous_p4")(C5)
-        # P5 = KL.Conv2D(256, (3, 3), padding="SAME", dilation_rate=4, name="atrous_p5")(C5)
+        # P5 = renet_block(P5, input_row_wave, input_col_wave,
+        #                  patch_size=(1, 1), hidden_units=128, stage=5)
 
         # P6 is used for the 5th anchor scale in RPN. Generated by
         # subsampling from P5 with stride of 2.
-        P6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="atrous_p6")(P5)
+        P6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="fpn_p6")(P5)
 
         # Note that P6 is used in RPN, but not in the classifier heads.
         rpn_feature_maps = [P2, P3, P4, P5, P6]
@@ -1964,7 +2104,7 @@ class MaskRCNN():
                 [target_mask, target_class_ids, mrcnn_mask])
 
             # Model
-            inputs = [input_image, input_image_meta,
+            inputs = [input_image, input_image_meta, input_row_wave, input_col_wave,
                       input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
             if not config.USE_RPN_ROIS:
                 inputs.append(input_rois)
@@ -1998,7 +2138,7 @@ class MaskRCNN():
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            model = KM.Model([input_image, input_image_meta],
+            model = KM.Model([input_image, input_image_meta, input_row_wave, input_col_wave],
                              [detections, mrcnn_class, mrcnn_bbox,
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox],
                              name='mask_rcnn')
@@ -2027,7 +2167,7 @@ class MaskRCNN():
         # Pick last directory
         dir_name = os.path.join(self.model_dir, dir_names[-1])
 
-        # dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180121T1227'
+        dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180129T1305'
         print (dir_name)
 
         # Find the last checkpoint
@@ -2192,7 +2332,7 @@ class MaskRCNN():
                                         int(m.group(4)), int(m.group(5)))
                 self.epoch = int(m.group(6)) + 1
 
-        self.epoch = self.epoch - 1
+        # self.epoch = self.epoch - 1
         print ('init_epoche', self.epoch)
 
         # Directory for training logs
@@ -2372,7 +2512,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def detect(self, images, verbose=0):
+    def detect(self, images, row_waves, col_waves, verbose=0):
         """Runs the detection pipeline.
 
         images: List of images, potentially of different sizes.
@@ -2399,7 +2539,7 @@ class MaskRCNN():
         # Run object detection
         detections, mrcnn_class, mrcnn_bbox, mrcnn_mask, \
             rois, rpn_class, rpn_bbox =\
-            self.keras_model.predict([molded_images, image_metas], verbose=0)
+            self.keras_model.predict([molded_images, image_metas, row_waves, col_waves], verbose=0)
         # Process detections
         results = []
         for i, image in enumerate(images):
@@ -2463,7 +2603,7 @@ class MaskRCNN():
                 layers.append(l)
         return layers
 
-    def run_graph(self, images, outputs):
+    def run_graph(self, images, row_waves, col_waves, outputs):
         """Runs a sub-set of the computation graph that computes the given
         outputs.
 
@@ -2500,7 +2640,7 @@ class MaskRCNN():
         #     outputs_np = kf(model_in)
         # else:
 
-        model_in = [molded_images, image_metas]
+        model_in = [molded_images, image_metas, row_waves, col_waves]
         if model.uses_learning_phase and not isinstance(K.learning_phase(), int):
             model_in.append(0.)
         outputs_np = kf(model_in)

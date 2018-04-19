@@ -1,6 +1,6 @@
 import os
 
-import model_res18_wave as modellib
+import model_res18_ose as modellib
 
 from jsrt import *
 
@@ -14,14 +14,14 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 
 # Path to COCO trained weights
 COCO_MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
-RESNET18_MODEL_PATH = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet_C5_wave.h5")
+RESNET18_MODEL_PATH = os.path.join(MODEL_DIR, "res18_ose_JSRT_lungs_aug.h5")
 
 config = JsrtConfig()
 config.display()
 
 # Training dataset
 dataset_train = JsrtDataset()
-dataset_train.load_jsrt(txt='/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/odd_id.txt')
+dataset_train.load_jsrt(txt='/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/odd_id_aug.txt')
 dataset_train.prepare()
 
 # val dataset
@@ -53,7 +53,9 @@ elif init_with == "Res18":
     # Load weights trained on MS COCO, but skip layers that
     # are different due to the different number of classes
     # See README for instructions to download the COCO weights
-    model.load_weights(RESNET18_MODEL_PATH, by_name=True)
+    model.load_weights(RESNET18_MODEL_PATH, by_name=True,
+                       exclude=["mrcnn_class_logits", "mrcnn_bbox_fc",
+                                "mrcnn_bbox", "mrcnn_mask"])
 
 # Train the head branches
 # Passing layers="heads" freezes all layers except the head
@@ -61,7 +63,7 @@ elif init_with == "Res18":
 # which layers to train by name pattern.
 # model.train(dataset_train, dataset_val,
 #             learning_rate=config.LEARNING_RATE,
-#             epochs=20,
+#             epochs=40,
 #             layers='heads')
 
 # Fine tune all layers
@@ -73,7 +75,7 @@ model.train(dataset_train, dataset_val,
             epochs=120,
             layers="all")
 
-model_path = os.path.join(MODEL_DIR, "res18_renet_C5_GRU_JSRT_Kmeans4.h5")
+model_path = os.path.join(MODEL_DIR, "res18_ose_JSRT_aug.h5")
 model.keras_model.save_weights(model_path)
 
 

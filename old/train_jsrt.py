@@ -1,10 +1,10 @@
 import os
 
-import model_res18_ose as modellib
+import model_res18_wave as modellib
 
-from cxr import *
+from jsrt import *
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '2'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -16,17 +16,17 @@ MODEL_DIR = os.path.join(ROOT_DIR, "logs")
 COCO_MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_coco.h5")
 RESNET18_MODEL_PATH = os.path.join(MODEL_DIR, "mask_rcnn_cxr_res18_renet_C5_wave.h5")
 
-config = CxrConfig()
+config = JsrtConfig()
 config.display()
 
 # Training dataset
-dataset_train = CxrDataset()
-dataset_train.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/train_id.txt')
+dataset_train = JsrtDataset()
+dataset_train.load_jsrt(txt='/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/odd_id_aug.txt')
 dataset_train.prepare()
 
 # val dataset
-dataset_val= CxrDataset()
-dataset_val.load_cxr(txt='/media/Disk/wangfuyu/Mask_RCNN/data/cxr/val_id.txt')
+dataset_val= JsrtDataset()
+dataset_val.load_jsrt(txt='/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/even_id.txt')
 dataset_val.prepare()
 
 # Create model in training mode
@@ -73,7 +73,7 @@ model.train(dataset_train, dataset_val,
             epochs=120,
             layers="all")
 
-model_path = os.path.join(MODEL_DIR, "res18_kmeans3.h5")
+model_path = os.path.join(MODEL_DIR, "res18_renet_C5_GRU_JSRT_Kmeans4_aug.h5")
 model.keras_model.save_weights(model_path)
 
 

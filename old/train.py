@@ -1,6 +1,6 @@
 import os
 
-import model_res18_ose as modellib
+import model_res18_wave as modellib
 
 from cxr import *
 
@@ -73,7 +73,7 @@ model.train(dataset_train, dataset_val,
             epochs=120,
             layers="all")
 
-model_path = os.path.join(MODEL_DIR, "res18_kmeans3.h5")
+model_path = os.path.join(MODEL_DIR, "res18_kmeans1.h5")
 model.keras_model.save_weights(model_path)
 
 

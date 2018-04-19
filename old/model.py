@@ -67,181 +67,6 @@ class BatchNorm(KL.BatchNormalization):
 
 
 ############################################################
-#  Renet block
-############################################################
-
-def renet_block(input_tensor, input_row_wave, input_col_wave, patch_size, hidden_units, stage):
-    """
-    input_tensor: bacth * height * width * channels
-    patch_size: tuple
-    hidden_units: dimensionality of the output space in LSTM
-    """
-
-    shape = K.int_shape(input_tensor)
-    batch, height, width, channels = shape[0], shape[1], shape[2], shape[3]
-    print (batch, height, width, channels)
-    patch_height, patch_width = patch_size
-    psize = patch_height * patch_width * channels
-    num_patchesH = tf.cast(height / patch_height, tf.int32)
-    num_patchesW = tf.cast(width / patch_width, tf.int32)
-
-    # row first
-    input_tensor = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
-                                 num_patchesW, patch_width, channels)))(input_tensor)
-
-    # batch * num_patchesH * num_patchesW * patch_height * patch_width * channels
-    input_tensor = KL.Lambda(
-        lambda t: tf.transpose(t, (0, 1, 3, 2, 4, 5)))(input_tensor)
-    # batch * num_patchesH || num_patchesW || patch_height * patch_width * channels
-    input_tensor = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(input_tensor)
-
-    input_row_wave = KL.Lambda(
-        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
-    input_row_wave = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
-
-    input_tensor = KL.Concatenate(axis=2)([input_tensor, input_row_wave])
-    print (K.int_shape(input_tensor))
-
-    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="H_LSTM_" + str(stage))(input_tensor)
-    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
-                         name="H_GRU_" + str(stage))(input_tensor)
-    # print (K.int_shape(x))
-    x = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x)
-
-    psize = 2 * hidden_units
-    x = KL.Lambda(
-        lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
-
-    x = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x)
-
-    input_col_wave = KL.Lambda(
-        lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
-    input_col_wave = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
-
-    x = KL.Concatenate(axis=2)([x, input_col_wave])
-    print (K.int_shape(x))
-
-    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="V_LSTM_" + str(stage))(x)
-    x = KL.Bidirectional(KL.GRU(hidden_units, return_sequences=True),
-                         name="V_GRU_" + str(stage))(x)
-    # print (K.int_shape(x))
-    x = KL.Lambda(
-        lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, psize)))(x)
-    # print (K.int_shape(x))
-    x = KL.Lambda(
-        lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
-
-    ### col first
-    # input_tensor = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
-    #                              num_patchesW, patch_width, channels)))(input_tensor)
-    #
-    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
-    # input_tensor = KL.Lambda(
-    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
-    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
-    # input_tensor = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(input_tensor)
-    #
-    # input_col_wave = KL.Lambda(
-    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
-    # input_col_wave = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
-    #
-    # input_tensor = KL.Concatenate(axis=2)([input_tensor, input_col_wave])
-    # print (K.int_shape(input_tensor))
-    #
-    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="V_LSTM_" + str(stage))(input_tensor)
-    # # print (K.int_shape(x))
-    # x = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x)
-    #
-    # psize = 2 * hidden_units
-    # x = KL.Lambda(
-    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x)
-    #
-    # x = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x)
-    #
-    # input_row_wave = KL.Lambda(
-    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
-    # input_row_wave = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
-    #
-    # x = KL.Concatenate(axis=2)([x, input_row_wave])
-    # print (K.int_shape(x))
-    #
-    # x = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="H_LSTM_" + str(stage))(x)
-    # # print (K.int_shape(x))
-    # x = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, psize)))(x)
-
-    # concat
-    # input_tensor = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, patch_height,
-    #                              num_patchesW, patch_width, channels)))(input_tensor)
-    #
-    # # batch * num_patchesH * num_patchesW * patch_height * patch_width * channels
-    # x1 = KL.Lambda(
-    #     lambda t: tf.transpose(t, (0, 1, 3, 2, 4, 5)))(input_tensor)
-    # # batch * num_patchesH || num_patchesW || patch_height * patch_width * channels
-    # x1 = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, psize)))(x1)
-    #
-    # input_row_wave = KL.Lambda(
-    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_row_wave)
-    # input_row_wave = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, 128)))(input_row_wave)
-    #
-    # x1 = KL.Concatenate(axis=2)([x1, input_row_wave])
-    # print (K.int_shape(x1))
-    #
-    # x1 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="H_LSTM_" + str(stage))(x1)
-    # # print (K.int_shape(x))
-    # x1 = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, num_patchesW, 2*hidden_units)))(x1)
-    #
-    # # batch * num_patchesW * num_patchesH * patch_height * patch_width * channels
-    # x2 = KL.Lambda(
-    #     lambda t: tf.transpose(t, (0, 3, 1, 2, 4, 5)))(input_tensor)
-    # # batch * num_patchesW || num_patchesH || patch_height * patch_width * channels
-    # x2 = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, psize)))(x2)
-    #
-    # input_col_wave = KL.Lambda(
-    #     lambda t: tf.tile(t, [num_patchesH * num_patchesW, 1]))(input_col_wave)
-    # input_col_wave = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesH, 128)))(input_col_wave)
-    #
-    # x2 = KL.Concatenate(axis=2)([x2, input_col_wave])
-    # print (K.int_shape(x2))
-    #
-    # x2 = KL.Bidirectional(KL.LSTM(hidden_units, return_sequences=True),
-    #                      name="V_LSTM_" + str(stage))(x2)
-    # # print (K.int_shape(x))
-    # x2 = KL.Lambda(
-    #     lambda t: tf.reshape(t, (-1, num_patchesW, num_patchesH, 2*hidden_units)))(x2)
-    # x2 = KL.Lambda(
-    #     lambda t: tf.transpose(t, (0, 2, 1, 3)))(x2)
-    #
-    # x = KL.Concatenate(axis=3)([x1, x2])
-    # print (K.int_shape(x))
-
-    return x
-
-
-############################################################
 #  Resnet Graph
 ############################################################
 
@@ -258,7 +83,7 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
         stage: integer, current stage label, used for generating layer names
         block: 'a','b'..., current block label, used for generating layer names
     """
-    nb_filter1, nb_filter2 = filters
+    nb_filter1, nb_filter2, nb_filter3 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -270,6 +95,11 @@ def identity_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
+    x = KL.Activation('relu')(x)
+
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base + '2c',
+                  use_bias=use_bias)(x)
+    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
 
     x = KL.Add()([x, input_tensor])
     x = KL.Activation('relu', name='res' + str(stage) + block + '_out')(x)
@@ -288,7 +118,7 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     Note that from stage 3, the first conv layer at main path is with subsample=(2,2)
     And the shortcut should have subsample=(2,2) as well
     """
-    nb_filter1, nb_filter2 = filters
+    nb_filter1, nb_filter2, nb_filter3 = filters
     conv_name_base = 'res' + str(stage) + block + '_branch'
     bn_name_base = 'bn' + str(stage) + block + '_branch'
 
@@ -300,8 +130,13 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     x = KL.Conv2D(nb_filter2, (kernel_size, kernel_size), padding='same',
                   name=conv_name_base + '2b', use_bias=use_bias)(x)
     x = BatchNorm(axis=3, name=bn_name_base + '2b')(x)
+    x = KL.Activation('relu')(x)
 
-    shortcut = KL.Conv2D(nb_filter2, (1, 1), strides=strides,
+    x = KL.Conv2D(nb_filter3, (1, 1), name=conv_name_base +
+                  '2c', use_bias=use_bias)(x)
+    x = BatchNorm(axis=3, name=bn_name_base + '2c')(x)
+
+    shortcut = KL.Conv2D(nb_filter3, (1, 1), strides=strides,
                          name=conv_name_base + '1', use_bias=use_bias)(input_tensor)
     shortcut = BatchNorm(axis=3, name=bn_name_base + '1')(shortcut)
 
@@ -310,52 +145,34 @@ def conv_block(input_tensor, kernel_size, filters, stage, block,
     return x
 
 
-def resnet_graph(input_image, input_row_wave, input_col_wave, architecture, stage5=False):
-    assert architecture in ["resnet18"]
+def resnet_graph(input_image, architecture, stage5=False):
+    assert architecture in ["resnet50", "resnet101"]
     # Stage 1
     x = KL.ZeroPadding2D((3, 3))(input_image)
     x = KL.Conv2D(64, (7, 7), strides=(2, 2), name='conv1', use_bias=True)(x)
     x = BatchNorm(axis=3, name='bn_conv1')(x)
     x = KL.Activation('relu')(x)
     C1 = x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
-    # x = KL.MaxPooling2D((3, 3), strides=(2, 2), padding="same")(x)
-    # C1 = x = renet_block(x, patch_size=(2, 2), hidden_units=64, stage=1)
-
     # Stage 2
-    x = conv_block(x, 3, [64, 64], stage=2, block='a', strides=(1, 1))
-    C2 = x = identity_block(x, 3, [64, 64], stage=2, block='b')
-    # x = identity_block(x, 3, [64, 64], stage=2, block='b')
-    # x = renet_block(x, input_row_wave, input_col_wave,
-    #                 patch_size=(2, 2), hidden_units=32, stage=2)
-    # C2 = x = KL.UpSampling2D(size=(2, 2))(x)
-
+    x = conv_block(x, 3, [64, 64, 256], stage=2, block='a', strides=(1, 1))
+    x = identity_block(x, 3, [64, 64, 256], stage=2, block='b')
+    C2 = x = identity_block(x, 3, [64, 64, 256], stage=2, block='c')
     # Stage 3
-    x = conv_block(x, 3, [128, 128], stage=3, block='a')
-    C3 = x = identity_block(x, 3, [128, 128], stage=3, block='b')
-    # x = identity_block(x, 3, [128, 128], stage=3, block='b')
-    # x = renet_block(x, input_row_wave, input_col_wave,
-    #                 patch_size=(4, 4), hidden_units=32, stage=3)
-    # C3 = x = KL.UpSampling2D(size=(4, 4))(x)
-
+    x = conv_block(x, 3, [128, 128, 512], stage=3, block='a')
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='b')
+    x = identity_block(x, 3, [128, 128, 512], stage=3, block='c')
+    C3 = x = identity_block(x, 3, [128, 128, 512], stage=3, block='d')
     # Stage 4
-    x = conv_block(x, 3, [256, 256], stage=4, block='a')
-    C4 = x = identity_block(x, 3, [256, 256], stage=4, block='b')
-    # x = identity_block(x, 3, [256, 256], stage=4, block='b')
-    # x = renet_block(x, input_row_wave, input_col_wave,
-    #                      patch_size=(2, 2), hidden_units=64, stage=4)
-    # C4 = x = KL.UpSampling2D(size=(2, 2))(x)
-
+    x = conv_block(x, 3, [256, 256, 1024], stage=4, block='a')
+    block_count = {"resnet50": 5, "resnet101": 22}[architecture]
+    for i in range(block_count):
+        x = identity_block(x, 3, [256, 256, 1024], stage=4, block=chr(98 + i))
+    C4 = x
     # Stage 5
     if stage5:
-        x = conv_block(x, 3, [512, 512,], stage=5, block='a')
-        # C5 = x = identity_block(x, 3, [512, 512], stage=5, block='b')
-        x = identity_block(x, 3, [512, 512], stage=5, block='b')
-        C5 = x = renet_block(x, input_row_wave, input_col_wave,
-                             patch_size=(1, 1), hidden_units=64, stage=5)
-        # renet = renet_block(x, input_row_wave, input_col_wave,
-        #                     patch_size=(1, 1), hidden_units=64, stage=5)
-        # C5 = KL.Concatenate(axis=3)([x, renet])
-
+        x = conv_block(x, 3, [512, 512, 2048], stage=5, block='a')
+        x = identity_block(x, 3, [512, 512, 2048], stage=5, block='b')
+        C5 = x = identity_block(x, 3, [512, 512, 2048], stage=5, block='c')
     else:
         C5 = None
     return [C1, C2, C3, C4, C5]
@@ -403,6 +220,7 @@ def clip_boxes_graph(boxes, window):
     y2 = tf.maximum(tf.minimum(y2, wy2), wy1)
     x2 = tf.maximum(tf.minimum(x2, wx2), wx1)
     clipped = tf.concat([y1, x1, y2, x2], axis=1, name="clipped_boxes")
+    clipped.set_shape((clipped.shape[0], 4))
     return clipped
 
 
@@ -410,7 +228,7 @@ class ProposalLayer(KE.Layer):
     """Receives anchor scores and selects a subset to pass as proposals
     to the second stage. Filtering is done based on anchor scores and
     non-max suppression to remove overlaps. It also applies bounding
-    box refinment detals to anchors.
+    box refinement deltas to anchors.
 
     Inputs:
         rpn_probs: [batch, anchors, (bg prob, fg prob)]
@@ -507,7 +325,7 @@ class PyramidROIAlign(KE.Layer):
 
     Params:
     - pool_shape: [height, width] of the output pooled regions. Usually [7, 7]
-    - image_shape: [height, width, chanells]. Shape of input image in pixels
+    - image_shape: [height, width, channels]. Shape of input image in pixels
 
     Inputs:
     - boxes: [batch, num_boxes, (y1, x1, y2, x2)] in normalized
@@ -655,7 +473,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
     rois: [TRAIN_ROIS_PER_IMAGE, (y1, x1, y2, x2)] in normalized coordinates
     class_ids: [TRAIN_ROIS_PER_IMAGE]. Integer class IDs. Zero padded.
     deltas: [TRAIN_ROIS_PER_IMAGE, NUM_CLASSES, (dy, dx, log(dh), log(dw))]
-            Class-specific bbox refinments.
+            Class-specific bbox refinements.
     masks: [TRAIN_ROIS_PER_IMAGE, height, width). Masks cropped to bbox
            boundaries and resized to neural network output size.
 
@@ -774,7 +592,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, gt_masks, config)
 
 
 class DetectionTargetLayer(KE.Layer):
-    """Subsamples proposals and generates target box refinment, class_ids,
+    """Subsamples proposals and generates target box refinement, class_ids,
     and masks for each.
 
     Inputs:
@@ -792,7 +610,7 @@ class DetectionTargetLayer(KE.Layer):
     target_class_ids: [batch, TRAIN_ROIS_PER_IMAGE]. Integer class IDs.
     target_deltas: [batch, TRAIN_ROIS_PER_IMAGE, NUM_CLASSES,
                     (dy, dx, log(dh), log(dw), class_id)]
-                   Class-specific bbox refinments.
+                   Class-specific bbox refinements.
     target_mask: [batch, TRAIN_ROIS_PER_IMAGE, height, width)
                  Masks cropped to bbox boundaries and resized to neural
                  network output size.
@@ -849,7 +667,7 @@ def clip_to_window(window, boxes):
     return boxes
 
 
-def refine_detections(rois, probs, deltas, window, config):
+def refine_detections_graph(rois, probs, deltas, window, config):
     """Refine classified proposals and filter overlaps and return final
     detections.
 
@@ -861,64 +679,96 @@ def refine_detections(rois, probs, deltas, window, config):
         window: (y1, x1, y2, x2) in image coordinates. The part of the image
             that contains the image excluding the padding.
 
-    Returns detections shaped: [N, (y1, x1, y2, x2, class_id, score)]
+    Returns detections shaped: [N, (y1, x1, y2, x2, class_id, score)] where
+        coordinates are in image domain.
     """
     # Class IDs per ROI
-    class_ids = np.argmax(probs, axis=1)
+    class_ids = tf.argmax(probs, axis=1, output_type=tf.int32)
     # Class probability of the top class of each ROI
-    class_scores = probs[np.arange(class_ids.shape[0]), class_ids]
+    indices = tf.stack([tf.range(probs.shape[0]), class_ids], axis=1)
+    class_scores = tf.gather_nd(probs, indices)
     # Class-specific bounding box deltas
-    deltas_specific = deltas[np.arange(deltas.shape[0]), class_ids]
+    deltas_specific = tf.gather_nd(deltas, indices)
     # Apply bounding box deltas
     # Shape: [boxes, (y1, x1, y2, x2)] in normalized coordinates
-    refined_rois = utils.apply_box_deltas(
+    refined_rois = apply_box_deltas_graph(
         rois, deltas_specific * config.BBOX_STD_DEV)
     # Convert coordiates to image domain
     # TODO: better to keep them normalized until later
     height, width = config.IMAGE_SHAPE[:2]
-    refined_rois *= np.array([height, width, height, width])
+    refined_rois *= tf.constant([height, width, height, width], dtype=tf.float32)
     # Clip boxes to image window
-    refined_rois = clip_to_window(window, refined_rois)
+    refined_rois = clip_boxes_graph(refined_rois, window)
     # Round and cast to int since we're deadling with pixels now
-    refined_rois = np.rint(refined_rois).astype(np.int32)
+    refined_rois = tf.to_int32(tf.rint(refined_rois))
 
     # TODO: Filter out boxes with zero area
 
     # Filter out background boxes
-    keep = np.where(class_ids > 0)[0]
+    keep = tf.where(class_ids > 0)[:, 0]
     # Filter out low confidence boxes
     if config.DETECTION_MIN_CONFIDENCE:
-        keep = np.intersect1d(
-            keep, np.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[0])
+        conf_keep = tf.where(class_scores >= config.DETECTION_MIN_CONFIDENCE)[:, 0]
+        keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
+                                        tf.expand_dims(conf_keep, 0))
+        keep = tf.sparse_tensor_to_dense(keep)[0]
 
     # Apply per-class NMS
-    pre_nms_class_ids = class_ids[keep]
-    pre_nms_scores = class_scores[keep]
-    pre_nms_rois = refined_rois[keep]
-    nms_keep = []
-    for class_id in np.unique(pre_nms_class_ids):
-        # Pick detections of this class
-        ixs = np.where(pre_nms_class_ids == class_id)[0]
-        # Apply NMS
-        class_keep = utils.non_max_suppression(
-            pre_nms_rois[ixs], pre_nms_scores[ixs],
-            config.DETECTION_NMS_THRESHOLD)
-        # Map indicies
-        class_keep = keep[ixs[class_keep]]
-        nms_keep = np.union1d(nms_keep, class_keep)
-    keep = np.intersect1d(keep, nms_keep).astype(np.int32)
+    # 1. Prepare variables
+    pre_nms_class_ids = tf.gather(class_ids, keep)
+    pre_nms_scores = tf.gather(class_scores, keep)
+    pre_nms_rois = tf.gather(refined_rois,   keep)
+    unique_pre_nms_class_ids = tf.unique(pre_nms_class_ids)[0]
 
+    def nms_keep_map(class_id):
+        """Apply Non-Maximum Suppression on ROIs of the given class."""
+        # Indices of ROIs of the given class
+        ixs = tf.where(tf.equal(pre_nms_class_ids, class_id))[:, 0]
+        # Apply NMS
+        class_keep = tf.image.non_max_suppression(
+                tf.to_float(tf.gather(pre_nms_rois, ixs)),
+                tf.gather(pre_nms_scores, ixs),
+                max_output_size=config.DETECTION_MAX_INSTANCES,
+                iou_threshold=config.DETECTION_NMS_THRESHOLD)
+        # Map indicies
+        class_keep = tf.gather(keep, tf.gather(ixs, class_keep))
+        # Pad with -1 so returned tensors have the same shape
+        gap = config.DETECTION_MAX_INSTANCES - tf.shape(class_keep)[0]
+        class_keep = tf.pad(class_keep, [(0, gap)],
+                            mode='CONSTANT', constant_values=-1)
+        # Set shape so map_fn() can infer result shape
+        class_keep.set_shape([config.DETECTION_MAX_INSTANCES])
+        return class_keep
+
+    # 2. Map over class IDs
+    nms_keep = tf.map_fn(nms_keep_map, unique_pre_nms_class_ids,
+                         dtype=tf.int64)
+    # 3. Merge results into one list, and remove -1 padding
+    nms_keep = tf.reshape(nms_keep, [-1])
+    nms_keep = tf.gather(nms_keep, tf.where(nms_keep > -1)[:, 0])
+    # 4. Compute intersection between keep and nms_keep
+    keep = tf.sets.set_intersection(tf.expand_dims(keep, 0),
+                                    tf.expand_dims(nms_keep, 0))
+    keep = tf.sparse_tensor_to_dense(keep)[0]
     # Keep top detections
     roi_count = config.DETECTION_MAX_INSTANCES
-    top_ids = np.argsort(class_scores[keep])[::-1][:roi_count]
-    keep = keep[top_ids]
+    class_scores_keep = tf.gather(class_scores, keep)
+    num_keep = tf.minimum(tf.shape(class_scores_keep)[0], roi_count)
+    top_ids = tf.nn.top_k(class_scores_keep, k=num_keep, sorted=True)[1]
+    keep = tf.gather(keep, top_ids)
 
     # Arrange output as [N, (y1, x1, y2, x2, class_id, score)]
     # Coordinates are in image domain.
-    result = np.hstack((refined_rois[keep],
-                        class_ids[keep][..., np.newaxis],
-                        class_scores[keep][..., np.newaxis]))
-    return result
+    detections = tf.concat([
+        tf.to_float(tf.gather(refined_rois, keep)),
+        tf.to_float(tf.gather(class_ids, keep))[..., tf.newaxis],
+        tf.gather(class_scores, keep)[..., tf.newaxis]
+        ], axis=1)
+
+    # Pad with zeros if detections < DETECTION_MAX_INSTANCES
+    gap = config.DETECTION_MAX_INSTANCES - tf.shape(detections)[0]
+    detections = tf.pad(detections, [(0, gap), (0, 0)], "CONSTANT")
+    return detections
 
 
 class DetectionLayer(KE.Layer):
@@ -926,7 +776,8 @@ class DetectionLayer(KE.Layer):
     returns the final detection boxes.
 
     Returns:
-    [batch, num_detections, (y1, x1, y2, x2, class_score)] in pixels
+    [batch, num_detections, (y1, x1, y2, x2, class_id, class_score)] where
+    coordinates are in image domain
     """
 
     def __init__(self, config=None, **kwargs):
@@ -934,29 +785,23 @@ class DetectionLayer(KE.Layer):
         self.config = config
 
     def call(self, inputs):
-        def wrapper(rois, mrcnn_class, mrcnn_bbox, image_meta):
-            detections_batch = []
-            _, _, window, _ = parse_image_meta(image_meta)
-            for b in range(self.config.BATCH_SIZE):
-                detections = refine_detections(
-                    rois[b], mrcnn_class[b], mrcnn_bbox[b], window[b], self.config)
-                # Pad with zeros if detections < DETECTION_MAX_INSTANCES
-                gap = self.config.DETECTION_MAX_INSTANCES - detections.shape[0]
-                assert gap >= 0
-                if gap > 0:
-                    detections = np.pad(
-                        detections, [(0, gap), (0, 0)], 'constant', constant_values=0)
-                detections_batch.append(detections)
+        rois = inputs[0]
+        mrcnn_class = inputs[1]
+        mrcnn_bbox = inputs[2]
+        image_meta = inputs[3]
 
-            # Stack detections and cast to float32
-            # TODO: track where float64 is introduced
-            detections_batch = np.array(detections_batch).astype(np.float32)
-            # Reshape output
-            # [batch, num_detections, (y1, x1, y2, x2, class_score)] in pixels
-            return np.reshape(detections_batch, [self.config.BATCH_SIZE, self.config.DETECTION_MAX_INSTANCES, 6])
+        # Run detection refinement graph on each item in the batch
+        _, _, window, _ = parse_image_meta_graph(image_meta)
+        detections_batch = utils.batch_slice(
+            [rois, mrcnn_class, mrcnn_bbox, window],
+            lambda x, y, w, z: refine_detections_graph(x, y, w, z, self.config),
+            self.config.IMAGES_PER_GPU)
 
-        # Return wrapped function
-        return tf.py_func(wrapper, inputs, tf.float32)
+        # Reshape output
+        # [batch, num_detections, (y1, x1, y2, x2, class_score)] in pixels
+        return tf.reshape(
+            detections_batch,
+            [self.config.BATCH_SIZE, self.config.DETECTION_MAX_INSTANCES, 6])
 
     def compute_output_shape(self, input_shape):
         return (None, self.config.DETECTION_MAX_INSTANCES, 6)
@@ -974,7 +819,7 @@ def rpn_graph(feature_map, anchors_per_location, anchor_stride):
 
     Returns:
         rpn_logits: [batch, H, W, 2] Anchor classifier logits (before softmax)
-        rpn_probs: [batch, W, W, 2] Anchor classifier probabilities.
+        rpn_probs: [batch, H, W, 2] Anchor classifier probabilities.
         rpn_bbox: [batch, H, W, (dy, dx, log(dh), log(dw))] Deltas to be
                   applied to anchors.
     """
@@ -1122,16 +967,12 @@ def build_fpn_mask_graph(rois, feature_maps,
 
     x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_mask_conv3")(x)
-    # x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same", dilation_rate=3),
-    #                        name="mrcnn_mask_conv3")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_mask_bn3')(x)
     x = KL.Activation('relu')(x)
 
     x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same"),
                            name="mrcnn_mask_conv4")(x)
-    # x = KL.TimeDistributed(KL.Conv2D(256, (3, 3), padding="same", dilation_rate=3),
-    #                        name="mrcnn_mask_conv4")(x)
     x = KL.TimeDistributed(BatchNorm(axis=3),
                            name='mrcnn_mask_bn4')(x)
     x = KL.Activation('relu')(x)
@@ -1346,7 +1187,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
         defined in MINI_MASK_SHAPE.
     """
     # Load image and mask
-    image, rowWave, colWave = dataset.load_image(image_id)
+    image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     shape = image.shape
     image, window, scale, padding = utils.resize_image(
@@ -1381,7 +1222,7 @@ def load_image_gt(dataset, config, image_id, augment=False,
     # Image meta data
     image_meta = compose_image_meta(image_id, shape, window, active_class_ids)
 
-    return image, image_meta, rowWave, colWave, class_ids, bbox, mask
+    return image, image_meta, class_ids, bbox, mask
 
 
 def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
@@ -1400,7 +1241,7 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
     rois: [TRAIN_ROIS_PER_IMAGE, (y1, x1, y2, x2)]
     class_ids: [TRAIN_ROIS_PER_IMAGE]. Integer class IDs.
     bboxes: [TRAIN_ROIS_PER_IMAGE, NUM_CLASSES, (y, x, log(h), log(w))]. Class-specific
-            bbox refinments.
+            bbox refinements.
     masks: [TRAIN_ROIS_PER_IMAGE, height, width, NUM_CLASSES). Class specific masks cropped
            to bbox boundaries and resized to neural network output size.
     """
@@ -1506,7 +1347,7 @@ def build_detection_targets(rpn_rois, gt_class_ids, gt_boxes, gt_masks, config):
     pos_ids = np.where(roi_gt_class_ids > 0)[0]
     bboxes[pos_ids, roi_gt_class_ids[pos_ids]] = utils.box_refinement(
         rois[pos_ids], roi_gt_boxes[pos_ids, :4])
-    # Normalize bbox refinments
+    # Normalize bbox refinements
     bboxes /= config.BBOX_STD_DEV
 
     # Generate class-specific target masks.
@@ -1622,7 +1463,7 @@ def build_rpn_targets(image_shape, anchors, gt_class_ids, gt_boxes, config):
     # to match the corresponding GT boxes.
     ids = np.where(rpn_match == 1)[0]
     ix = 0  # index into rpn_bbox
-    # TODO: use box_refinment() rather than duplicating the code here
+    # TODO: use box_refinement() rather than duplicating the code here
     for i, a in zip(ids, anchors[ids]):
         # Closest gt box (it might have IoU < 0.7)
         gt = gt_boxes[anchor_iou_argmax[i]]
@@ -1786,7 +1627,7 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Get GT bounding boxes and masks for image.
             image_id = image_ids[image_index]
-            image, image_meta, rowWave, colWave, gt_class_ids, gt_boxes, gt_masks = \
+            image, image_meta, gt_class_ids, gt_boxes, gt_masks = \
                 load_image_gt(dataset, config, image_id, augment=augment,
                               use_mini_mask=config.USE_MINI_MASK)
 
@@ -1823,10 +1664,6 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
                     (batch_size, config.MAX_GT_INSTANCES), dtype=np.int32)
                 batch_gt_boxes = np.zeros(
                     (batch_size, config.MAX_GT_INSTANCES, 4), dtype=np.int32)
-
-                batch_row_waves = np.zeros((batch_size, 128), dtype=np.float32)
-                batch_col_waves = np.zeros((batch_size, 128), dtype=np.float32)
-
                 if config.USE_MINI_MASK:
                     batch_gt_masks = np.zeros((batch_size, config.MINI_MASK_SHAPE[0], config.MINI_MASK_SHAPE[1],
                                                config.MAX_GT_INSTANCES))
@@ -1862,8 +1699,6 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
             batch_gt_class_ids[b, :gt_class_ids.shape[0]] = gt_class_ids
             batch_gt_boxes[b, :gt_boxes.shape[0]] = gt_boxes
             batch_gt_masks[b, :, :, :gt_masks.shape[-1]] = gt_masks
-            batch_row_waves[b] = rowWave
-            batch_col_waves[b] = colWave
             if random_rois:
                 batch_rpn_rois[b] = rpn_rois
                 if detection_targets:
@@ -1875,9 +1710,8 @@ def data_generator(dataset, config, shuffle=True, augment=True, random_rois=0,
 
             # Batch full?
             if b >= batch_size:
-                inputs = [batch_images, batch_image_meta, batch_row_waves, batch_col_waves,
-                          batch_rpn_match, batch_rpn_bbox,batch_gt_class_ids,
-                          batch_gt_boxes, batch_gt_masks]
+                inputs = [batch_images, batch_image_meta, batch_rpn_match, batch_rpn_bbox,
+                          batch_gt_class_ids, batch_gt_boxes, batch_gt_masks]
                 outputs = []
 
                 if random_rois:
@@ -1947,8 +1781,6 @@ class MaskRCNN():
         input_image = KL.Input(
             shape=config.IMAGE_SHAPE.tolist(), name="input_image")
         input_image_meta = KL.Input(shape=[None], name="input_image_meta")
-        input_row_wave = KL.Input(shape=(128,), name="input_row_wave")
-        input_col_wave = KL.Input(shape=(128,), name="input_col_wave")
         if mode == "training":
             # RPN GT
             input_rpn_match = KL.Input(
@@ -1980,17 +1812,11 @@ class MaskRCNN():
                     shape=[config.IMAGE_SHAPE[0], config.IMAGE_SHAPE[1], None],
                     name="input_gt_masks", dtype=bool)
 
-        # Input Renet
-        # input_renet = renet_block(input_image, input_row_wave, input_col_wave,
-        #                           patch_size=(2, 2), hidden_units=32, stage='input_renet')
-        # input_renet = KL.UpSampling2D(size=(2, 2))(input_renet)
-
         # Build the shared convolutional layers.
         # Bottom-up Layers
         # Returns a list of the last layers of each stage, 5 in total.
         # Don't create the thead (stage 5), so we pick the 4th item in the list.
-        _, C2, C3, C4, C5 = resnet_graph(input_image, input_row_wave, input_col_wave,
-                                         "resnet18", stage5=True)
+        _, C2, C3, C4, C5 = resnet_graph(input_image, "resnet101", stage5=True)
         # Top-down Layers
         # TODO: add assert to varify feature map sizes match what's in config
         P5 = KL.Conv2D(256, (1, 1), name='fpn_c5p5')(C5)
@@ -2008,10 +1834,6 @@ class MaskRCNN():
         P3 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p3")(P3)
         P4 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p4")(P4)
         P5 = KL.Conv2D(256, (3, 3), padding="SAME", name="fpn_p5")(P5)
-
-        # P5 = renet_block(P5, input_row_wave, input_col_wave,
-        #                  patch_size=(1, 1), hidden_units=128, stage=5)
-
         # P6 is used for the 5th anchor scale in RPN. Generated by
         # subsampling from P5 with stride of 2.
         P6 = KL.MaxPooling2D(pool_size=(1, 1), strides=2, name="fpn_p6")(P5)
@@ -2107,7 +1929,7 @@ class MaskRCNN():
                 [target_mask, target_class_ids, mrcnn_mask])
 
             # Model
-            inputs = [input_image, input_image_meta, input_row_wave, input_col_wave,
+            inputs = [input_image, input_image_meta,
                       input_rpn_match, input_rpn_bbox, input_gt_class_ids, input_gt_boxes, input_gt_masks]
             if not config.USE_RPN_ROIS:
                 inputs.append(input_rois)
@@ -2141,7 +1963,7 @@ class MaskRCNN():
                                               config.MASK_POOL_SIZE,
                                               config.NUM_CLASSES)
 
-            model = KM.Model([input_image, input_image_meta, input_row_wave, input_col_wave],
+            model = KM.Model([input_image, input_image_meta],
                              [detections, mrcnn_class, mrcnn_bbox,
                                  mrcnn_mask, rpn_rois, rpn_class, rpn_bbox],
                              name='mask_rcnn')
@@ -2169,10 +1991,6 @@ class MaskRCNN():
             return None, None
         # Pick last directory
         dir_name = os.path.join(self.model_dir, dir_names[-1])
-
-        dir_name = '/media/Disk/wangfuyu/Mask_RCNN/logs/cxr20180129T1305'
-        print (dir_name)
-
         # Find the last checkpoint
         checkpoints = next(os.walk(dir_name))[2]
         checkpoints = filter(lambda f: f.startswith("mask_rcnn"), checkpoints)
@@ -2211,6 +2029,8 @@ class MaskRCNN():
             layers = filter(lambda l: l.name not in exclude, layers)
 
         if by_name:
+            for layer in layers:
+                print (layer.name)
             topology.load_weights_from_hdf5_group_by_name(f, layers)
         else:
             topology.load_weights_from_hdf5_group(f, layers)
@@ -2335,9 +2155,6 @@ class MaskRCNN():
                                         int(m.group(4)), int(m.group(5)))
                 self.epoch = int(m.group(6)) + 1
 
-        self.epoch = self.epoch - 1
-        print ('init_epoche', self.epoch)
-
         # Directory for training logs
         self.log_dir = os.path.join(self.model_dir, "{}{:%Y%m%dT%H%M}".format(
             self.config.NAME.lower(), now))
@@ -2402,6 +2219,14 @@ class MaskRCNN():
         self.set_trainable(layers)
         self.compile(learning_rate, self.config.LEARNING_MOMENTUM)
 
+        # Work-around for Windows: Keras fails on Windows when using
+        # multiprocessing workers. See discussion here:
+        # https://github.com/matterport/Mask_RCNN/issues/13#issuecomment-353124009
+        if os.name is 'nt':
+            workers = 0
+        else:
+            workers = max(self.config.BATCH_SIZE // 2, 2)
+
         self.keras_model.fit_generator(
             train_generator,
             initial_epoch=self.epoch,
@@ -2411,7 +2236,7 @@ class MaskRCNN():
             validation_data=next(val_generator),
             validation_steps=self.config.VALIDATION_STEPS,
             max_queue_size=100,
-            workers=max(self.config.BATCH_SIZE // 2, 2),
+            workers=workers,
             use_multiprocessing=True,
         )
         self.epoch = max(self.epoch, epochs)
@@ -2515,7 +2340,7 @@ class MaskRCNN():
 
         return boxes, class_ids, scores, full_masks
 
-    def detect(self, images, row_waves, col_waves, verbose=0):
+    def detect(self, images, verbose=0):
         """Runs the detection pipeline.
 
         images: List of images, potentially of different sizes.
@@ -2542,7 +2367,7 @@ class MaskRCNN():
         # Run object detection
         detections, mrcnn_class, mrcnn_bbox, mrcnn_mask, \
             rois, rpn_class, rpn_bbox =\
-            self.keras_model.predict([molded_images, image_metas, row_waves, col_waves], verbose=0)
+            self.keras_model.predict([molded_images, image_metas], verbose=0)
         # Process detections
         results = []
         for i, image in enumerate(images):
@@ -2661,8 +2486,7 @@ class MaskRCNN():
 ############################################################
 
 def compose_image_meta(image_id, image_shape, window, active_class_ids):
-    """Takes attributes of an image and puts them in one 1D array. Use
-    parse_image_meta() to parse the values back.
+    """Takes attributes of an image and puts them in one 1D array.
 
     image_id: An int ID of the image. Useful for debugging.
     image_shape: [height, width, channels]
@@ -2681,18 +2505,6 @@ def compose_image_meta(image_id, image_shape, window, active_class_ids):
     return meta
 
 
-# Two functions (for Numpy and TF) to parse image_meta tensors.
-def parse_image_meta(meta):
-    """Parses an image info Numpy array to its components.
-    See compose_image_meta() for more details.
-    """
-    image_id = meta[:, 0]
-    image_shape = meta[:, 1:4]
-    window = meta[:, 4:8]   # (y1, x1, y2, x2) window of image in in pixels
-    active_class_ids = meta[:, 8:]
-    return image_id, image_shape, window, active_class_ids
-
-
 def parse_image_meta_graph(meta):
     """Parses a tensor that contains image attributes to its components.
     See compose_image_meta() for more details.
@@ -2701,7 +2513,7 @@ def parse_image_meta_graph(meta):
     """
     image_id = meta[:, 0]
     image_shape = meta[:, 1:4]
-    window = meta[:, 4:8]
+    window = meta[:, 4:8]   # (y1, x1, y2, x2) window of image in in pixels
     active_class_ids = meta[:, 8:]
     return [image_id, image_shape, window, active_class_ids]
 

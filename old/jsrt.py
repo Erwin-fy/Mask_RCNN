@@ -21,13 +21,13 @@ from config import Config
 import utils
 
 
-class CxrConfig(Config):
+class JsrtConfig(Config):
     """Configuration for training on the toy shapes dataset.
     Derives from the base Config class and overrides values specific
     to the toy shapes dataset.
     """
     # Give the configuration a recognizable name
-    NAME = "cxr"
+    NAME = "jsrt"
 
     # Train on 2 GPU and 8 images per GPU. We can put multiple images on each
     # GPU because the images are small. Batch size is 2 (GPUs * images/GPU).
@@ -35,14 +35,14 @@ class CxrConfig(Config):
     IMAGES_PER_GPU = 1
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 1  # background + lung
+    NUM_CLASSES = 1 + 3  # background + lung
 
     # Use small images for faster training. Set the limits of the small side
     # the large side, and that determines the image shape.
 
-    # IMAGE_MIN_DIM = 128
-    # IMAGE_MAX_DIM = 128
-    MEAN_PIXEL = np.array([191.6, 191.6, 191.6])
+    # IMAGE_MIN_DIM = 200
+    # IMAGE_MAX_DIM = 256
+    MEAN_PIXEL = np.array([191.7, 191.7, 191.7])
 
     # Use smaller anchors because our image and objects are small
     # RPN_ANCHOR_SCALES = (8, 16, 32, 64, 128)  # anchor side in pixels
@@ -50,10 +50,7 @@ class CxrConfig(Config):
     # Reduce training ROIs per image because the images are small and have
     # few objects. Aim to allow ROI sampling to pick 33% positive ROIs.
     TRAIN_ROIS_PER_IMAGE = 32
-    # RPN_ANCHOR_RATIOS = [0.57]
-    # RPN_ANCHOR_RATIOS = [0.55, 0.60]
-    # RPN_ANCHOR_RATIOS = [0.55, 0.59, 0.62]
-
+    RPN_ANCHOR_RATIOS = [2.2, 0.47, 0.65, 1.2]
 
     # Use a small epoch since the data is simple
     # STEPS_PER_EPOCH = 100
@@ -62,25 +59,26 @@ class CxrConfig(Config):
     # VALIDATION_STEPS = 5
 
 
-
-class CxrDataset(utils.Dataset):
+class JsrtDataset(utils.Dataset):
     """Generates the shapes synthetic dataset. The dataset consists of simple
     shapes (triangles, squares, circles) placed randomly on a blank surface.
     The images are generated on the fly. No file access required.
     """
 
     def __init__(self):
-        super(CxrDataset, self).__init__()
+        super(JsrtDataset, self).__init__()
 
-        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/images'
-        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/cxr/masks'
+        self.image_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/1024/images'
+        self.mask_dir = '/media/Disk/wangfuyu/Mask_RCNN/data/jsrt/1024/binary_masks'
 
-    def load_cxr(self, txt):
+    def load_jsrt(self, txt):
         """Load Dataset
        txt dataset ids
         """
         # Add classes
-        self.add_class("cxr", 1, "lung")
+        self.add_class("jsrt", 1, "lung")
+        self.add_class("jsrt", 2, "clavicle")
+        self.add_class("jsrt", 3, "heart")
 
         # Add images
         # read image id from txt
@@ -89,10 +87,10 @@ class CxrDataset(utils.Dataset):
             lines = f.readlines()
             for index, line in enumerate(lines):
                 self.add_image(
-                    "cxr", image_id=index,
+                    "jsrt", image_id=index,
                     path=None,
                     filename=line[0:-1],
-                    instances=2)
+                    instances=5)
 
     def load_image(self, image_id):
         """Load the specified image and return a [H,W,3] Numpy array.
@@ -119,35 +117,37 @@ class CxrDataset(utils.Dataset):
         if image.ndim != 3:
             image = skimage.color.gray2rgb(image)
 
+        # return image
         return image, rowWave, colWave
 
     def image_reference(self, image_id):
         info = self.image_info[image_id]
-        if info["source"] == "cxr":
+        if info["source"] == "jsrt":
             return info["instances"]
         else:
-            super(CxrDataset, self).image_reference(self, image_id)
+            super(JsrtDataset, self).image_reference(self, image_id)
 
     def load_mask(self, image_id):
         """Generate instance masks for shapes of the given image ID.
         """
         info = self.image_info[image_id]
-        filename = info['filename']
+        filename = info['filename'][0:8]
         count = info['instances']
 
-        mask_path = os.path.join(self.mask_dir, filename + '.png')
-        mask = skimage.io.imread(mask_path)
+        heart = skimage.io.imread(os.path.join(self.mask_dir, 'heart', filename + '.png'))
+        left_lung = skimage.io.imread(os.path.join(self.mask_dir, 'left_lung', filename + '.png'))
+        right_lung = skimage.io.imread(os.path.join(self.mask_dir, 'right_lung', filename + '.png'))
+        left_clavicle = skimage.io.imread(os.path.join(self.mask_dir, 'left_clavicle', filename + '.png'))
+        right_clavicle = skimage.io.imread(os.path.join(self.mask_dir, 'right_clavicle', filename + '.png'))
 
         instance_masks = []
-        class_ids = []
-
-        for index in range(1, count + 1):
-            m = (mask == index).astype(np.uint8)
-
-            instance_masks.append(m)
-            class_ids.append(1)
-
+        instance_masks.append(left_lung)
+        instance_masks.append(right_lung)
+        instance_masks.append(left_clavicle)
+        instance_masks.append(right_clavicle)
+        instance_masks.append(heart)
         instance_masks = np.stack(instance_masks, axis=2)
-        class_ids = np.array(class_ids, dtype=np.int32)
+        class_ids = np.array([1, 1, 2, 2, 3], dtype=np.int32)
 
         return instance_masks, class_ids
+

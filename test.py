@@ -1,63 +1,40 @@
 import numpy as np
-import random
-
-def compute_iou(box1, box2):
-    area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
-    area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
-
-    y1 = np.maximum(box1[0], box2[0])
-    y2 = np.minimum(box1[2], box2[2])
-    x1 = np.maximum(box1[1], box2[1])
-    x2 = np.minimum(box1[3], box2[3])
-    intersection = np.maximum(x2 - x1, 0) * np.maximum(y2 - y1, 0)
-    union = area1 + area2 - intersection
-    iou = 1. * intersection / union
-    return iou
 
 
-def kmeans(k, boxes):
-    """
-    :param k:
-    :param boxes: [N, (y1, x1, y2, x2)]
-    :return:
-    """
-    count = boxes.shape[0]
-    centroid_ids = random.sample(range(count), k)
-    centroid_boxes = np.zeros((k, 4))
-    print centroid_ids
-    for i in range(k):
-        centroid_boxes[i] = boxes[centroid_ids[i]]
-
-    for iteration in range(500):
-        clusters = []
-        for i in range(k):
-            clusters.append([])
-
-        for i in range(count):
-            max_iou = 0
-            cluster_index = 0
-            for j in range(k):
-                iou = compute_iou(boxes[i], centroid_boxes[j])
-                if (max_iou < iou):
-                    max_iou = iou
-                    cluster_index = j
-
-            clusters[cluster_index].append(boxes[i])
-
-        for i in range(k):
-            centroid_boxes[i] = np.mean(clusters[i], axis=0)
-
-    print centroid_boxes
+def dice(y_true, y_pred):
+    smooth = 0.
+    y_true_f = y_true.flatten()
+    y_pred_f = y_pred.flatten()
+    intersection = (y_true_f * y_pred_f).sum()
+    score = (2. * intersection + smooth) / (y_true_f.sum() + y_pred_f.sum() + smooth)
+    return score
 
 
-boxes = np.zeros((6,4))
-boxes[0] = [1,2,3,4]
-boxes[1] = [2,3,4,5]
-boxes[2] = [4,5,6,7]
-boxes[3] = [8,1,9,7]
-boxes[4] = [5,3,6,9]
-boxes[5] = [4,5,8,7]
+def _fast_hist(label_pred, label_true, num_classes):
+    mask = (label_true >= 0) & (label_true < num_classes)
+    hist = np.bincount(
+        num_classes * label_true[mask].astype(int) +
+        label_pred[mask], minlength=num_classes ** 2).reshape(num_classes, num_classes)
+    return hist
+
+def compute_IOU(pred, gt, num_classes=2):
+    hist = np.zeros((num_classes, num_classes))
+    hist += _fast_hist(pred.flatten(), gt.flatten(), num_classes)
+    dice_coef = dice(y_true=gt, y_pred=pred)
+
+    # axis 0: gt, axis 1: prediction
+    acc = np.diag(hist).sum() / hist.sum()
+    acc_cls = np.diag(hist) / hist.sum(axis=1)
+    acc_cls = np.nanmean(acc_cls)
+    iu = np.diag(hist) / (hist.sum(axis=1) + hist.sum(axis=0) - np.diag(hist))
+    # mean_iu = np.nanmean(iu)
+    freq = hist.sum(axis=1) / hist.sum()
+    fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
+
+    return acc, acc_cls, iu, fwavacc, dice_coef
 
 
-kmeans(2, boxes)
-np.concatenate()
+a = np.array([[0,0,0],[0,1,1],[1,0,1]])
+b = np.array([[0,0,0],[1,0,1],[1,0,0]])
+
+print(compute_IOU(a,b))

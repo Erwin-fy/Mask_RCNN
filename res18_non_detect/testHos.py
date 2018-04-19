@@ -25,7 +25,7 @@ from distutils.version import LooseVersion
 assert LooseVersion(tf.__version__) >= LooseVersion("1.3")
 assert LooseVersion(keras.__version__) >= LooseVersion('2.0.8')
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 
 # Root directory of the project
 ROOT_DIR = os.getcwd()
@@ -33,9 +33,9 @@ ROOT_DIR = os.getcwd()
 
 # Directory to save weights
 # MODEL_DIR = os.path.join(JSRT_DIR, "logs", "odd")
-MODEL_DIR = os.path.join(ROOT_DIR, "logs", "CXR", "256")
+MODEL_DIR = os.path.join(ROOT_DIR, "logs", "CXR")
 
-NET_MODEL_PATH = os.path.join(MODEL_DIR, "inverted_stage1.h5")
+NET_MODEL_PATH = os.path.join(MODEL_DIR, "korea_stage1.h5")
 
 RESULTS_PATH = os.path.join(ROOT_DIR, "results", "CXR", "stage1")
 isExists=os.path.exists(RESULTS_PATH)
@@ -51,8 +51,8 @@ class InferenceConfig(config.__class__):
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
     concat = False
-    MEAN_PIXEL = np.array([191.6])
-    NUM_CLASSES = 1
+    MEAN_PIXEL = np.array([123.7, 116.8, 103.9])
+    NUM_CLASSES = 2
 
 
 config = InferenceConfig()
